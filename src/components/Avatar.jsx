@@ -11,7 +11,7 @@ const sizes = {
   xl: 'w-16 h-16 text-xl',
 };
 
-export default function Avatar({ initials, size = 'md', className = '' }) {
+export default function Avatar({ initials, size = 'md', className = '', imageUrl = null }) {
   return (
     <div className={`
       ${sizes[size]} rounded-full
@@ -19,10 +19,18 @@ export default function Avatar({ initials, size = 'md', className = '' }) {
       border border-amber-500/30
       flex items-center justify-center
       font-display font-semibold text-amber-400
-      flex-shrink-0
+      flex-shrink-0 overflow-hidden
       ${className}
     `}>
-      {initials}
+      {imageUrl ? (
+        <img 
+          src={imageUrl} 
+          alt="profile"
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        initials
+      )}
     </div>
   );
 }

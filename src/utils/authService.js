@@ -160,19 +160,27 @@ export const getCurrentUser = async () => {
  * @returns {function} Unsubscribe function to stop listening
  */
 export const onAuthStateChange = (callback) => {
-  return supabase.auth.onAuthStateChange(async (event, session) => {
-    if (session) {
-      // User is logged in, fetch their profile
-      const { data: userProfile } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    async (event, session) => {
+      if (session) {
+        // User is logged in, fetch their profile
+        const { data: userProfile, error: profileError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
 
-      callback({ user: { ...session.user, ...userProfile }, session });
-    } else {
-      // User is logged out
-      callback({ user: null, session: null });
+        if (profileError) {
+          callback({ user: session.user, session });
+        } else {
+          callback({ user: { ...session.user, ...userProfile }, session });
+        }
+      } else {
+        // User is logged out
+        callback({ user: null, session: null });
+      }
     }
-  });
+  );
+  
+  return { data: { subscription } };
 };

@@ -148,10 +148,18 @@ export default function AdminPage() {
       {error && (
         <div className="flex gap-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
           <AlertCircle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-red-400">{error}</p>
+          <div className="flex-1">
+            <p className="text-sm text-red-400">{error}</p>
+            {error.includes('Permission') && (
+              <p className="text-xs text-red-300 mt-1">
+                💡 <strong>Hint:</strong> This is likely a Supabase RLS policy issue. 
+                See <code className="text-red-200">ADMIN_PANEL_QUICK_FIX.md</code> for the fix!
+              </p>
+            )}
+          </div>
           <button
             onClick={() => setError('')}
-            className="text-red-400 hover:text-red-300 ml-auto text-sm font-medium"
+            className="text-red-400 hover:text-red-300 ml-auto text-sm font-medium flex-shrink-0"
           >
             Dismiss
           </button>

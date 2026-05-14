@@ -12,26 +12,25 @@ export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authError, setAuthError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = onAuthStateChange(({ user }) => {
-      if (user) {
-        setCurrentUser(user);
-        setIsAuthenticated(true);
-      } else {
-        setCurrentUser(null);
-        setIsAuthenticated(false);
+    // Clear any stored session data to require manual login
+    const storageClear = () => {
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.includes('supabase') || key.includes('auth')) {
+          keysToRemove.push(key);
+        }
       }
-
-      setLoading(false);
-    });
-
-    return () => {
-      subscription.unsubscribe();
+      keysToRemove.forEach(key => localStorage.removeItem(key));
     };
+    
+    storageClear();
+    setCurrentUser(null);
+    setIsAuthenticated(false);
+    setLoading(false);
   }, []);
 
   const signup = async (
@@ -157,6 +156,7 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider
       value={{
         currentUser,
+        setCurrentUser,
         isAuthenticated,
         authError,
         loading,
