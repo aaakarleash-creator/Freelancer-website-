@@ -19,7 +19,6 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Fetch leaderboard data on mount
   useEffect(() => {
     fetchLeaderboard();
   }, []);
@@ -38,7 +37,6 @@ export default function LeaderboardPage() {
     setLoading(false);
   };
 
-  // Get user initials for avatar
   const getInitials = (name) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
   };
@@ -47,7 +45,6 @@ export default function LeaderboardPage() {
   const rest = leaderboard.slice(3);
   const maxConversions = leaderboard[0]?.convertedLeads || 1;
 
-  // Loading state
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -81,28 +78,46 @@ export default function LeaderboardPage() {
 
       {/* Podium — top 3 */}
       {top3.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {/* Reorder: 2nd, 1st, 3rd for podium effect */}
+        // FIX 1: Added pt-8 (more room for the -top-3 badge + scale overflow)
+        // FIX 2: Added items-end so shorter cards align to bottom (real podium feel)
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-12 items-end px-2">
           {[top3[1], top3[0], top3[2]].filter(Boolean).map((user, visualIdx) => {
             const realIdx = visualIdx === 0 ? 1 : visualIdx === 1 ? 0 : 2;
             const m = medalColors[realIdx];
             const isFirst = realIdx === 0;
             return (
+              // FIX 3: Removed sm:scale-105 — scaling causes the card to visually
+              // overflow its grid cell and get clipped. Instead we use a larger
+              // ring + extra top padding to make #1 stand out without overflow.
               <div
                 key={user.id}
                 className={`
-                  card-shine relative rounded-2xl p-6 border bg-gradient-to-br ${m.bg} ${m.border}
-                  ${isFirst ? 'sm:scale-105 shadow-gold' : ''}
+                  card-shine relative rounded-2xl border bg-gradient-to-br ${m.bg} ${m.border}
+                  ${isFirst
+                    ? 'p-6 shadow-gold ring-2 ring-yellow-500/40 pt-12'
+                    : 'p-5'
+                  }
                   text-center transition-all duration-300
                 `}
               >
                 {isFirst && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                  // FIX 4: Changed -top-3 to -top-4 and ensured pt-8 on parent
+                  // gives enough clearance so the badge never clips
+                  <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap z-10">
                     <div className="bg-gradient-to-r from-amber-500 to-yellow-400 text-dark-900 text-xs font-bold px-3 py-1 rounded-full shadow-gold">
                       #1 Champion
                     </div>
                   </div>
                 )}
+               {isFirst && (
+  <div className="flex justify-center mb-3">
+    <span className="inline-flex items-center gap-1.5 bg-gradient-to-r from-amber-500 via-yellow-300 to-amber-500 bg-clip-text text-transparent font-display font-extrabold text-lg tracking-widest uppercase drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]">
+      <span className="text-yellow-400">👑</span>
+      Champion
+      <span className="text-yellow-400">👑</span>
+    </span>
+  </div>
+)}
                 <div className="text-3xl mb-3 mt-2">{m.badge}</div>
                 <div className={`
                   w-14 h-14 rounded-full bg-dark-600 border-2 ${m.border}
@@ -111,7 +126,7 @@ export default function LeaderboardPage() {
                 `}>
                   {getInitials(user.name)}
                 </div>
-                <p className="font-display font-semibold text-white text-sm">{user.name}</p>
+                <p className="font-display font-semibold text-white text-sm line-clamp-2">{user.name}</p>
                 <p className="text-xs text-slate-500 mt-0.5">{user.convertedLeads} conversions</p>
                 <p className={`text-xl font-bold font-mono mt-2 ${m.text}`}>
                   Rank: {user.rank}
@@ -207,8 +222,8 @@ export default function LeaderboardPage() {
                       <td className="px-5 py-3.5 text-right">
                         <span className={`
                           text-xs px-2 py-1 rounded-full border capitalize
-                          ${user.status === 'active' 
-                            ? 'bg-green-500/10 text-green-400 border-green-500/20' 
+                          ${user.status === 'active'
+                            ? 'bg-green-500/10 text-green-400 border-green-500/20'
                             : 'bg-red-500/10 text-red-400 border-red-500/20'
                           }
                         `}>
