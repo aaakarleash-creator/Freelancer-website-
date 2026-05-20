@@ -184,78 +184,47 @@ export const deleteUser = async (userId) => {
 
 /**
  * Upload profile picture to Supabase storage
- * Uploads image to profiles/{userId}/{filename}
- * 
- * @param {string} userId - User ID
- * @param {File} file - Image file to upload
- * @returns {object} { imageUrl, error }
+ * DEPRECATED: This function is no longer used
+ * Profile pictures have been removed from the application
  */
 export const uploadProfilePicture = async (userId, file) => {
-  try {
-    if (!file) {
-      return { imageUrl: null, error: 'No file selected' };
-    }
-
-    // Validate file is an image
-    if (!file.type.startsWith('image/')) {
-      return { imageUrl: null, error: 'Please select a valid image file' };
-    }
-
-    // Validate file size (max 5MB)
-    const maxSize = 5 * 1024 * 1024;
-    if (file.size > maxSize) {
-      return { imageUrl: null, error: 'Image size must be less than 5MB' };
-    }
-
-    // Generate unique filename
-    const timestamp = Date.now();
-    const filename = `${userId}-${timestamp}-${file.name}`;
-    const filePath = `profiles/${userId}/${filename}`;
-
-    // Upload to Supabase storage
-    const { data, error } = await supabase.storage
-      .from('profile-pictures')
-      .upload(filePath, file, {
-        cacheControl: '3600',
-        upsert: false,
-      });
-
-    if (error) {
-      return { imageUrl: null, error: error.message };
-    }
-
-    // Get public URL
-    const { data: { publicUrl } } = supabase.storage
-      .from('profile-pictures')
-      .getPublicUrl(filePath);
-
-    return { imageUrl: publicUrl, error: null };
-  } catch (err) {
-    return { imageUrl: null, error: err.message };
-  }
+  return { 
+    imageUrl: null, 
+    error: 'Profile picture uploads have been disabled' 
+  };
 };
 
 /**
- * Update user profile (name, designation, email, profile picture)
+ * Update user profile (name, designation)
+ * NOTE: Email is NOT updated here as it's managed by Supabase Auth
+ * NOTE: Profile pictures have been removed - no profileImageUrl field
  * 
  * @param {string} userId - User ID
- * @param {object} profileData - Object with: name, designation, email, profileImageUrl
+ * @param {object} profileData - Object with: name, designation
  * @returns {object} { success, error }
  */
 export const updateUserProfile = async (userId, profileData) => {
   try {
+    // Build update object - only include fields we want to update
+    const updateData = {
+      name: profileData.name,
+      designation: profileData.designation,
+      updated_at: new Date().toISOString(),
+    };
+
     const { error } = await supabase
       .from('users')
-      .update({
-        name: profileData.name,
-        designation: profileData.designation,
-        email: profileData.email,
-        profile_image_url: profileData.profileImageUrl,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq('id', userId);
 
     if (error) {
+      // Check if it's a column not found error
+      if (error.message.includes("Could not find") || error.message.includes("column")) {
+        return { 
+          success: false, 
+          error: 'Database error: ' + error.message
+        };
+      }
       return { success: false, error: error.message };
     }
 

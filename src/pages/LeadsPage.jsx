@@ -1,12 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, Phone, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { addLead, getUserLeads, updateLeadStatus, deleteLead } from '../utils/leadService';
-import { services } from '../data/mockData';
-import StatusBadge from '../components/StatusBadge';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
 import { Input, Select } from '../components/Input';
+
+// Available services
+const services = [
+  'Web Development', 'Mobile App', 'UI/UX Design',
+  'SEO & Marketing', 'Branding', 'Social Media', 'Content Writing',
+];
 
 // ============================================================
 // LeadsPage — lead management with Supabase integration
@@ -32,14 +36,7 @@ export default function LeadsPage() {
 
   const update = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
-  // Fetch user's leads on component mount
-  useEffect(() => {
-    if (currentUser?.id) {
-      fetchLeads();
-    }
-  }, [currentUser]);
-
-  const fetchLeads = async () => {
+  const fetchLeads = useCallback(async () => {
     setLoading(true);
     setError('');
     const { leads: data, error: err } = await getUserLeads(currentUser.id);
@@ -51,7 +48,14 @@ export default function LeadsPage() {
       setLeads(data);
     }
     setLoading(false);
-  };
+  }, [currentUser.id]);
+
+  // Fetch user's leads on component mount
+  useEffect(() => {
+    if (currentUser?.id) {
+      fetchLeads();
+    }
+  }, [currentUser?.id, fetchLeads]);
 
   // Handle adding a new lead to Supabase
   const handleAddLead = async (e) => {
