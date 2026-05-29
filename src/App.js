@@ -11,6 +11,7 @@ import EarningsPage from './pages/EarningsPage';
 import LeaderboardPage from './pages/LeaderboardPage';
 import LeadsPage from './pages/LeadsPage';
 import ProfilePage from './pages/ProfilePage';
+import ServicesPage from './pages/ServicesPage';
 // Temporary: Test Supabase connection on app start
 import { testSupabaseConnection } from './utils/supabaseTest';
 
@@ -39,6 +40,8 @@ function AppContent() {
     switch (currentPage) {
       case 'dashboard':
         return <DashboardPage onNavigate={setCurrentPage} />;
+      case 'services':
+        return <ServicesPage onNavigate={setCurrentPage} />;
       case 'admin':
         return (
           <ProtectedRoute requiredRole="admin">
