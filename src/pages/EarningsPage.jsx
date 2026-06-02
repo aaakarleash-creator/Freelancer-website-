@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { DollarSign, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { 
   getUserEarnings, 
   calculateTotalEarnings,
   getPendingPayouts,
-  getPaidPayouts 
+  getPaidPayouts,
+  requestPayout
 } from '../utils/earningsService';
 import StatCard from '../components/StatCard';
+import Button from '../components/Button';
 
 // ============================================================
 // EarningsPage — Supabase-powered earnings tracking
@@ -15,12 +18,14 @@ import StatCard from '../components/StatCard';
 
 export default function EarningsPage() {
   const { currentUser } = useAuth();
+  const { showToast } = useToast();
   const [earnings, setEarnings] = useState([]);
   const [totalEarnings, setTotalEarnings] = useState(0);
   const [pendingPayouts, setPendingPayouts] = useState(0);
   const [paidPayouts, setPaidPayouts] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [requestingPayout, setRequestingPayout] = useState(false);
 
   // Fetch earnings data on mount
   useEffect(() => {
@@ -61,6 +66,34 @@ export default function EarningsPage() {
     setLoading(false);
   };
 
+  const handleRequestPayout = async () => {
+    if (pendingPayouts < 500) {
+      showToast('Minimum payout amount is ₹500', 'warning');
+      return;
+    }
+
+    if (!window.confirm(`Request payout of ${formatCurrency(pendingPayouts)}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setRequestingPayout(true);
+    setError('');
+
+    const { success, error: err } = await requestPayout(currentUser.id);
+
+    if (err) {
+      setError(`Failed to request payout: ${err}`);
+      showToast(`Failed to request payout: ${err}`, 'error');
+      setRequestingPayout(false);
+      return;
+    }
+
+    // Refresh earnings data
+    await fetchEarningsData();
+    showToast('Payout request submitted successfully!', 'success');
+    setRequestingPayout(false);
+  };
+
   const formatCurrency = (amount) => {
     return `₹${Math.round(amount).toLocaleString('en-IN')}`;
   };
@@ -86,9 +119,20 @@ export default function EarningsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-white">Earnings</h1>
-        <p className="text-slate-500 text-sm mt-0.5">Track your income and payouts</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-white">Earnings</h1>
+          <p className="text-slate-500 text-sm mt-0.5">Track your income and payouts</p>
+        </div>
+        {pendingPayouts >= 500 && (
+          <Button 
+            onClick={handleRequestPayout} 
+            disabled={requestingPayout}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
+            {requestingPayout ? 'Requesting...' : `Request Payout (${formatCurrency(pendingPayouts)})`}
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -156,38 +200,39 @@ export default function EarningsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-dark-600">
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Description</th>
-                <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Date</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Lead</th>
+                <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Deal Value</th>
+                <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Commission</th>
                 <th className="text-center px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
-                <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Amount</th>
+                <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Date</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-dark-600">
               {earnings.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="text-center py-12 text-slate-600 text-sm">
-                    No earnings yet. Convert leads to start earning!
+                  <td colSpan={5} className="text-center py-12 text-slate-600 text-sm">
+                    No earnings yet. Convert your first lead to start earning!
                   </td>
                 </tr>
               ) : (
                 earnings.map(earning => (
                   <tr key={earning.id} className="hover:bg-dark-600/50 transition-colors">
                     <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <div className={`
-                          w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0
+                          w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-medium
                           ${earning.payout_status === 'paid' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}
                         `}>
-                          {earning.payout_status === 'paid' ? <CheckCircle2 size={14} /> : <Clock size={14} />}
+                          {earning.payout_status === 'paid' ? '✓' : '⋮'}
                         </div>
-                        <div>
-                          <span className="text-slate-200 text-sm block">Sale Commission</span>
-                          <span className="text-xs text-slate-500">Commission: {formatCurrency(earning.commission)}</span>
-                        </div>
+                        <span className="text-slate-200 text-sm">Lead #{earning.id?.slice(0, 8)}</span>
                       </div>
                     </td>
-                    <td className="px-5 py-3.5 text-right hidden sm:table-cell text-slate-500 font-mono text-xs">
-                      {formatDate(earning.created_at)}
+                    <td className="px-5 py-3.5 text-right hidden sm:table-cell font-mono text-slate-300">
+                      {formatCurrency(earning.amount)}
+                    </td>
+                    <td className="px-5 py-3.5 text-right font-mono font-semibold text-amber-400">
+                      {formatCurrency(earning.commission)}
                     </td>
                     <td className="px-5 py-3.5 text-center">
                       <span className={`
@@ -196,14 +241,16 @@ export default function EarningsPage() {
                           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
                           : earning.payout_status === 'pending'
                           ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          : earning.payout_status === 'requested'
+                          ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
                           : 'bg-red-500/10 text-red-400 border-red-500/20'
                         }
                       `}>
                         {earning.payout_status}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 text-right font-mono font-semibold text-amber-400">
-                      +{formatCurrency(earning.amount)}
+                    <td className="px-5 py-3.5 text-right hidden md:table-cell text-slate-500 font-mono text-xs">
+                      {formatDate(earning.created_at)}
                     </td>
                   </tr>
                 ))
@@ -215,7 +262,7 @@ export default function EarningsPage() {
         {/* Footer total */}
         {earnings.length > 0 && (
           <div className="px-5 py-4 border-t border-dark-500 flex justify-between items-center bg-dark-600/50">
-            <span className="text-sm text-slate-500">Total</span>
+            <span className="text-sm text-slate-500">Total Commissions</span>
             <span className="font-display font-bold text-amber-400 text-lg">
               {formatCurrency(totalEarnings)}
             </span>

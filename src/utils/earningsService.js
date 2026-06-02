@@ -29,8 +29,7 @@ export const getUserEarnings = async (userId) => {
 };
 
 /**
- * Calculate total earnings for a user
- * Sums all amounts in earnings table
+ * Calculate total earnings for a user (sum of commissions)
  * 
  * @param {string} userId - User ID
  * @returns {object} { total, error }
@@ -39,14 +38,14 @@ export const calculateTotalEarnings = async (userId) => {
   try {
     const { data, error } = await supabase
       .from('earnings')
-      .select('amount')
+      .select('commission')
       .eq('user_id', userId);
 
     if (error) {
       return { total: 0, error: error.message };
     }
 
-    const total = data.reduce((sum, row) => sum + (parseFloat(row.amount) || 0), 0);
+    const total = data.reduce((sum, row) => sum + (parseFloat(row.commission) || 0), 0);
     return { total, error: null };
   } catch (err) {
     return { total: 0, error: err.message };
@@ -89,7 +88,7 @@ export const getPendingPayouts = async (userId) => {
   try {
     const { data, error } = await supabase
       .from('earnings')
-      .select('amount, commission')
+      .select('commission')
       .eq('user_id', userId)
       .eq('payout_status', 'pending');
 
@@ -97,7 +96,7 @@ export const getPendingPayouts = async (userId) => {
       return { pendingAmount: 0, count: 0, error: error.message };
     }
 
-    const pendingAmount = data.reduce((sum, row) => sum + (parseFloat(row.amount) || 0), 0);
+    const pendingAmount = data.reduce((sum, row) => sum + (parseFloat(row.commission) || 0), 0);
     return { pendingAmount, count: data.length, error: null };
   } catch (err) {
     return { pendingAmount: 0, count: 0, error: err.message };
@@ -114,7 +113,7 @@ export const getPaidPayouts = async (userId) => {
   try {
     const { data, error } = await supabase
       .from('earnings')
-      .select('amount, commission')
+      .select('commission')
       .eq('user_id', userId)
       .eq('payout_status', 'paid');
 
@@ -122,7 +121,7 @@ export const getPaidPayouts = async (userId) => {
       return { paidAmount: 0, count: 0, error: error.message };
     }
 
-    const paidAmount = data.reduce((sum, row) => sum + (parseFloat(row.amount) || 0), 0);
+    const paidAmount = data.reduce((sum, row) => sum + (parseFloat(row.commission) || 0), 0);
     return { paidAmount, count: data.length, error: null };
   } catch (err) {
     return { paidAmount: 0, count: 0, error: err.message };
@@ -197,4 +196,99 @@ export const updatePayoutStatus = async (earningId, newStatus) => {
 export const calculateCommissionRate = (amount, convertedLeads = 0) => {
   const rate = convertedLeads >= 10 ? 0.15 : 0.10;
   return amount * rate;
+};
+
+/**
+ * Process lead conversion: update lead status, calculate commission, insert earnings
+ * 
+ * @param {string} leadId - ID of the lead being converted
+ * @param {string} userId - Current user ID
+ * @param {number} dealAmount - Deal value in rupees
+ * @returns {object} { success, commission, rate, error }
+ */
+export const processLeadConversion = async (leadId, userId, dealAmount) => {
+  try {
+    // 1. Update lead status to "Converted"
+    const { error: updateError } = await supabase
+      .from('leads')
+      .update({ status: 'Converted' })
+      .eq('id', leadId);
+
+    if (updateError) {
+      return { success: false, commission: 0, rate: 0, error: updateError.message };
+    }
+
+    // 2. Fetch user's total converted leads count
+    const { count, error: countError } = await supabase
+      .from('leads')
+      .select('id', { count: 'exact' })
+      .eq('user_id', userId)
+      .eq('status', 'Converted');
+
+    if (countError) {
+      return { success: false, commission: 0, rate: 0, error: countError.message };
+    }
+
+    // 3. Determine commission rate based on converted leads count
+    const rate = count >= 10 ? 15 : 10;
+    const commission = dealAmount * (rate / 100);
+
+    // 4. Insert earnings record
+    const { error: insertError } = await supabase
+      .from('earnings')
+      .insert([
+        {
+          user_id: userId,
+          amount: dealAmount,
+          commission: commission,
+          payout_status: 'pending',
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+    if (insertError) {
+      return { success: false, commission: 0, rate: 0, error: insertError.message };
+    }
+
+    return { success: true, commission, rate, error: null };
+  } catch (err) {
+    return { success: false, commission: 0, rate: 0, error: err.message };
+  }
+};
+
+/**
+ * Request payout: update all pending earnings to 'requested' status
+ * Minimum payout amount is ₹500
+ * 
+ * @param {string} userId - User ID
+ * @returns {object} { success, error }
+ */
+export const requestPayout = async (userId) => {
+  try {
+    // Get pending amount first to check if >= 500
+    const { pendingAmount, error: getError } = await getPendingPayouts(userId);
+    
+    if (getError) {
+      return { success: false, error: getError };
+    }
+
+    if (pendingAmount < 500) {
+      return { success: false, error: 'Minimum payout amount is ₹500' };
+    }
+
+    // Update all pending earnings to 'requested'
+    const { error: updateError } = await supabase
+      .from('earnings')
+      .update({ payout_status: 'requested' })
+      .eq('user_id', userId)
+      .eq('payout_status', 'pending');
+
+    if (updateError) {
+      return { success: false, error: updateError.message };
+    }
+
+    return { success: true, error: null };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 };

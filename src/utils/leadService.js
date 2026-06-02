@@ -7,7 +7,7 @@ import { supabase } from '../supabaseClient';
 /**
  * Add a new lead for the current user
  * 
- * @param {object} leadData - { client_name, phone, service, status }
+ * @param {object} leadData - { client_name, phone, service, status, note }
  * @param {string} userId - Current logged-in user ID
  * @returns {object} { lead, error }
  */
@@ -22,6 +22,7 @@ export const addLead = async (leadData, userId) => {
           phone: leadData.phone,
           service: leadData.service,
           status: leadData.status || 'pending',
+          note: leadData.note || '',
           created_at: new Date().toISOString(),
         },
       ])

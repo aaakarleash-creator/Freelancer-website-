@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Search, Phone, AlertCircle } from 'lucide-react';
+import { Plus, Search, Phone, AlertCircle, MessageSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { addLead, getUserLeads, updateLeadStatus, deleteLead } from '../utils/leadService';
+import { processLeadConversion } from '../utils/earningsService';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
 import { Input, Select } from '../components/Input';
+
+// SUPABASE: Run this SQL first: ALTER TABLE leads ADD COLUMN IF NOT EXISTS note text;
 
 // Available services
 const services = [
@@ -20,11 +24,13 @@ const emptyForm = {
   client_name: '', 
   phone: '', 
   service: services[0] || '', 
-  status: 'pending' 
+  status: 'pending',
+  note: ''
 };
 
 export default function LeadsPage() {
   const { currentUser } = useAuth();
+  const { showToast } = useToast();
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -33,6 +39,10 @@ export default function LeadsPage() {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
   const [submitting, setSubmitting] = useState(false);
+  const [showConversionModal, setShowConversionModal] = useState(false);
+  const [conversionLead, setConversionLead] = useState(null);
+  const [dealAmount, setDealAmount] = useState('');
+  const [convertingLead, setConvertingLead] = useState(false);
 
   const update = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -86,6 +96,16 @@ export default function LeadsPage() {
 
   // Handle status change
   const handleStatusChange = async (leadId, newStatus) => {
+    // If converting to "Converted", show modal for deal amount
+    if (newStatus === 'Converted') {
+      const lead = leads.find(l => l.id === leadId);
+      setConversionLead(lead);
+      setDealAmount('');
+      setShowConversionModal(true);
+      return;
+    }
+
+    // Otherwise, update status directly
     const { success, error: err } = await updateLeadStatus(leadId, newStatus);
     
     if (err) {
@@ -99,6 +119,45 @@ export default function LeadsPage() {
         lead.id === leadId ? { ...lead, status: newStatus } : lead
       )
     );
+  };
+
+  // Handle lead conversion with deal amount
+  const handleConvertLead = async () => {
+    if (!dealAmount || parseFloat(dealAmount) <= 0) {
+      setError('Deal amount must be greater than 0');
+      return;
+    }
+
+    setConvertingLead(true);
+    setError('');
+
+    const { success, commission, rate, error: err } = await processLeadConversion(
+      conversionLead.id,
+      currentUser.id,
+      parseFloat(dealAmount)
+    );
+
+    if (err) {
+      setError(`Failed to convert lead: ${err}`);
+      setConvertingLead(false);
+      return;
+    }
+
+    // Update lead in state
+    setLeads(prev => 
+      prev.map(lead => 
+        lead.id === conversionLead.id ? { ...lead, status: 'Converted' } : lead
+      )
+    );
+
+    // Show success toast
+    showToast(`🎉 Lead converted! ₹${Math.round(commission).toLocaleString('en-IN')} commission added to your earnings.`, 'success');
+
+    // Close modal
+    setShowConversionModal(false);
+    setConversionLead(null);
+    setDealAmount('');
+    setConvertingLead(false);
   };
 
   // Handle deleting a lead
@@ -212,6 +271,7 @@ export default function LeadsPage() {
                 <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Client</th>
                 <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Phone</th>
                 <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Service</th>
+                <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell">Notes</th>
                 <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
                 <th className="text-center px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell">Actions</th>
               </tr>
@@ -219,7 +279,7 @@ export default function LeadsPage() {
             <tbody className="divide-y divide-dark-600">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12 text-slate-600 text-sm">
+                  <td colSpan={6} className="text-center py-12 text-slate-600 text-sm">
                     {leads.length === 0 ? 'No leads yet. Create your first lead to get started!' : 'No leads match your filters'}
                   </td>
                 </tr>
@@ -237,6 +297,20 @@ export default function LeadsPage() {
                       </span>
                     </td>
                     <td className="px-5 py-3.5 hidden md:table-cell text-slate-300">{lead.service || '—'}</td>
+                    <td className="px-5 py-3.5 hidden lg:table-cell">
+                      {lead.note ? (
+                        <div className="group relative">
+                          <button className="text-slate-400 hover:text-amber-400 transition-colors" title={lead.note}>
+                            <MessageSquare size={16} />
+                          </button>
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block bg-dark-600 border border-dark-400 rounded-lg px-3 py-2 text-xs text-slate-300 whitespace-nowrap z-10 pointer-events-none">
+                            {lead.note}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-slate-500">—</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3.5">
                       <select
                         value={lead.status}
@@ -291,6 +365,16 @@ export default function LeadsPage() {
             <option value="follow-up">Follow-up</option>
             <option value="converted">Converted</option>
           </Select>
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Notes</label>
+            <textarea
+              placeholder="Add any notes about this lead…"
+              value={form.note}
+              onChange={update('note')}
+              rows="3"
+              className="w-full bg-dark-700 border border-dark-400 rounded-xl text-sm text-white placeholder-slate-600 px-4 py-2.5 focus:outline-none focus:border-amber-500/50 transition-all resize-none"
+            />
+          </div>
           <div className="flex gap-3 pt-2">
             <Button type="button" variant="secondary" className="flex-1 justify-center" onClick={() => setShowModal(false)}>
               Cancel
@@ -301,6 +385,63 @@ export default function LeadsPage() {
           </div>
         </form>
       </Modal>
+
+      {/* Conversion Modal */}
+      <Modal isOpen={showConversionModal} onClose={() => setShowConversionModal(false)} title="Convert Lead to Deal">
+        <form onSubmit={(e) => { e.preventDefault(); handleConvertLead(); }} className="space-y-4">
+          {conversionLead && (
+            <>
+              <div className="bg-dark-600/50 border border-dark-500 rounded-lg p-3">
+                <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Lead Details</p>
+                <p className="text-white font-medium">{conversionLead.client_name}</p>
+                <p className="text-sm text-slate-400 mt-1">{conversionLead.service}</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+                  Deal Amount (₹) *
+                </label>
+                <input
+                  type="number"
+                  placeholder="Enter deal value in ₹"
+                  value={dealAmount}
+                  onChange={(e) => setDealAmount(e.target.value)}
+                  min="0"
+                  step="0.01"
+                  required
+                  className="w-full bg-dark-700 border border-dark-400 rounded-xl text-sm text-white placeholder-slate-600 px-4 py-2.5 focus:outline-none focus:border-amber-500/50 transition-all"
+                />
+              </div>
+
+              {dealAmount && parseFloat(dealAmount) > 0 && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                  <p className="text-xs text-slate-400 mb-2">Earning Preview</p>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">Deal Amount:</span>
+                      <span className="text-white font-medium">₹{parseFloat(dealAmount).toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">Commission (10%):</span>
+                      <span className="text-amber-400 font-medium">₹{(parseFloat(dealAmount) * 0.1).toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <Button type="button" variant="secondary" className="flex-1 justify-center" onClick={() => setShowConversionModal(false)} disabled={convertingLead}>
+              Cancel
+            </Button>
+            <Button type="submit" className="flex-1 justify-center" disabled={convertingLead || !dealAmount || parseFloat(dealAmount) <= 0}>
+              {convertingLead ? 'Converting…' : 'Confirm Conversion'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
+

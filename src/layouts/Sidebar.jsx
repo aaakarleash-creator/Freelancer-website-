@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   LayoutDashboard, Users, Trophy, DollarSign,
-  UserCircle, ShieldCheck, LogOut, Menu, X, Zap
+  UserCircle, ShieldCheck, LogOut, Menu, X, Zap, FileText, Lock
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Avatar from '../components/Avatar';
@@ -16,6 +16,8 @@ const navItems = [
   { id: 'leaderboard',  label: 'Leaderboard',  icon: Trophy },
   { id: 'earnings',     label: 'Earnings',     icon: DollarSign },
   { id: 'profile',      label: 'Profile',      icon: UserCircle },
+  { id: 'terms',        label: 'Terms & Conditions', icon: FileText },
+  { id: 'privacy',      label: 'Privacy Policy', icon: Lock },
 ];
 
 const adminItem = { id: 'admin', label: 'Admin Panel', icon: ShieldCheck };
