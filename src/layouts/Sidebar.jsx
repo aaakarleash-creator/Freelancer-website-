@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   LayoutDashboard, Users, Trophy, DollarSign,
-  UserCircle, ShieldCheck, LogOut, Menu, X, Zap, FileText, Lock
+  UserCircle, ShieldCheck, LogOut, Menu, X, Zap
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Avatar from '../components/Avatar';
@@ -12,6 +12,7 @@ import Avatar from '../components/Avatar';
 
 const navItems = [
   { id: 'dashboard',    label: 'Dashboard',   icon: LayoutDashboard },
+  { id: 'services',     label: 'Services',    icon: Briefcase },
   { id: 'leads',        label: 'Leads',        icon: Users },
   { id: 'leaderboard',  label: 'Leaderboard',  icon: Trophy },
   { id: 'earnings',     label: 'Earnings',     icon: DollarSign },
