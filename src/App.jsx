@@ -70,6 +70,8 @@ function AppRouter() {
       case 'leaderboard': return <LeaderboardPage  onNavigate={setActivePage} />;
       case 'earnings':    return <EarningsPage     onNavigate={setActivePage} />;
       case 'profile':     return <ProfilePage      onNavigate={setActivePage} />;
+      case 'terms':       return <TermsConditionsPage  onNavigate={setActivePage} />;
+      case 'privacy':     return <PrivacyPolicyPage    onNavigate={setActivePage} />;
       case 'admin':       return <AdminPage        onNavigate={setActivePage} />;
       default:            return <DashboardPage    onNavigate={setActivePage} />;
     }
