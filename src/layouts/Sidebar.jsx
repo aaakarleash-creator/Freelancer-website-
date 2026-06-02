@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   LayoutDashboard, Users, Trophy, DollarSign,
-  UserCircle, ShieldCheck, LogOut, Menu, X, Zap
+  UserCircle, ShieldCheck, LogOut, Menu, X, Zap, Briefcase, FileText, Lock
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Avatar from '../components/Avatar';
