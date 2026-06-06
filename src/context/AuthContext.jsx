@@ -39,17 +39,14 @@ export function AuthProvider({ children }) {
               .single();
 
             if (profileError) {
-              console.error('❌ Profile fetch error:', profileError.message);
-              // Even on error, we need to clear the spinner
-              setIsLoading(false);
-              setIsAuthenticated(false);
-              setCurrentUser(null);
-              setRequiresLegal(false);
-              return;
+              console.warn('⚠️ Profile fetch error (likely race condition):', profileError.message);
+              // Don't return early - fall through to the "profile not found" logic
+              // This handles the race condition where profile isn't available yet after signup
             }
 
             if (profile) {
               console.log('✅ Profile loaded:', profile.id);
+              console.log('📋 Profile data:', { requires_legal_acceptance: profile.requires_legal_acceptance, accepted_terms_at: profile.accepted_terms_at });
               if (profile.status === 'suspended') {
                 console.warn('🚫 Account suspended');
                 await supabase.auth.signOut();
@@ -64,7 +61,7 @@ export function AuthProvider({ children }) {
                 const needsLegal =
                   merged.requires_legal_acceptance === true ||
                   !merged.accepted_terms_at;
-                console.log('Legal required:', needsLegal);
+                console.log('🔐 Legal required:', needsLegal, '(requires_legal_acceptance:', merged.requires_legal_acceptance, ', accepted_terms_at:', merged.accepted_terms_at + ')');
                 setRequiresLegal(needsLegal);
               }
             } else {
@@ -179,25 +176,44 @@ export function AuthProvider({ children }) {
 
   const refetchUser = async () => {
     try {
+      console.log('🔄 refetchUser: Fetching current session...');
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      if (!session) {
+        console.warn('⚠️ refetchUser: No session found');
+        return;
+      }
 
-      const { data: profile } = await supabase
+      console.log('🔄 refetchUser: Fetching profile for user:', session.user.id);
+      const { data: profile, error: profileError } = await supabase
         .from('users')
         .select('*')
         .eq('id', session.user.id)
         .single();
 
+      if (profileError) {
+        console.warn('⚠️ Profile fetch error in refetchUser:', profileError.message);
+        // Use session user as fallback
+        setCurrentUser(session.user);
+        setRequiresLegal(true);
+        return;
+      }
+
       if (profile) {
+        console.log('✅ refetchUser: Profile fetched successfully');
         const merged = { ...session.user, ...profile };
         setCurrentUser(merged);
         const needsLegal =
           merged.requires_legal_acceptance === true ||
           !merged.accepted_terms_at;
+        console.log('🔄 refetchUser: requiresLegal set to:', needsLegal);
         setRequiresLegal(needsLegal);
+
+        // Force a small delay to ensure state updates are processed
+        await new Promise(resolve => setTimeout(resolve, 100));
+        console.log('🔄 refetchUser: State updates should be complete');
       }
     } catch (err) {
-      console.error('refetchUser error:', err);
+      console.error('❌ refetchUser error:', err);
     } finally {
       setIsLoading(false);
     }
@@ -213,7 +229,7 @@ export function AuthProvider({ children }) {
       isAuthenticated, isLoading,
       authError, setAuthError,
       loading,
-      requiresLegal,
+      requiresLegal, setRequiresLegal,
       login, signup, logout, refetchUser,
       isAdmin, isManager, isFreelancer,
     }}>

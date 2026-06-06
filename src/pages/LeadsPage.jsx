@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Search, Phone, AlertCircle, MessageSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { addLead, getUserLeads, updateLeadStatus, deleteLead } from '../utils/leadService';
+import { getUserLeads, updateLeadStatus, deleteLead } from '../utils/leadService';
 import { processLeadConversion } from '../utils/earningsService';
+import { supabase } from '../utils/supabaseClient';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
 import { Input, Select } from '../components/Input';
@@ -20,12 +21,13 @@ const services = [
 // LeadsPage — lead management with Supabase integration
 // ============================================================
 
-const emptyForm = { 
-  client_name: '', 
-  phone: '', 
-  service: services[0] || '', 
+const emptyForm = {
+  client_name: '',
+  phone: '',
+  service: services[0] || '',
   status: 'pending',
-  note: ''
+  note: '',
+  dealAmount: ''
 };
 
 export default function LeadsPage() {
@@ -43,55 +45,90 @@ export default function LeadsPage() {
   const [conversionLead, setConversionLead] = useState(null);
   const [dealAmount, setDealAmount] = useState('');
   const [convertingLead, setConvertingLead] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const update = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
-  const fetchLeads = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    const { leads: data, error: err } = await getUserLeads(currentUser.id);
-    
-    if (err) {
-      setError(`Failed to load leads: ${err}`);
-      setLeads([]);
-    } else {
-      setLeads(data);
-    }
-    setLoading(false);
-  }, [currentUser.id]);
-
   // Fetch user's leads on component mount
   useEffect(() => {
-    if (currentUser?.id) {
-      fetchLeads();
-    }
-  }, [currentUser?.id, fetchLeads]);
+    const fetchLeads = async () => {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .order('created_at', { ascending: false });
 
-  // Handle adding a new lead to Supabase
-  const handleAddLead = async (e) => {
+      if (!error && data) {
+        // Map snake_case DB columns to camelCase for existing JSX
+        setLeads(data.map(l => ({
+          ...l,
+          clientName: l.client_name,
+          date: new Date(l.created_at).toLocaleDateString('en-IN'),
+        })));
+      } else if (error) {
+        console.error('Failed to fetch leads:', error);
+      }
+      setLoading(false);
+    };
+    if (currentUser?.id) fetchLeads();
+  }, [currentUser?.id]);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!form.client_name.trim()) {
-      setError('Client name is required');
+    if (!form.client_name || !form.phone || !form.service) {
+      setError('Please fill in all required fields');
+      return;
+    }
+    if (form.status === 'Converted' && (!form.dealAmount || parseFloat(form.dealAmount) <= 0)) {
+      setError('Please enter the deal value for a converted lead');
       return;
     }
 
     setSubmitting(true);
     setError('');
 
-    const { lead: newLead, error: err } = await addLead(form, currentUser.id);
+    try {
+      const leadData = {
+        client_name: form.client_name,
+        phone:       form.phone,
+        service:     form.service,
+        status:      form.status,
+        note:        form.note || '',
+      };
 
-    if (err) {
-      setError(`Failed to add lead: ${err}`);
+      const { data: newLead, error: insertError } = await supabase
+        .from('leads')
+        .insert({ ...leadData, user_id: currentUser.id })
+        .select()
+        .single();
+
+      if (insertError) {
+        throw new Error(insertError.message);
+      }
+
+      // If this is a converted lead with deal amount, process earnings
+      if (form.status === 'Converted' && form.dealAmount && parseFloat(form.dealAmount) > 0) {
+        const { commission, rate, error: earnError } =
+          await processLeadConversion(newLead.id, currentUser.id, parseFloat(form.dealAmount));
+
+        if (earnError) {
+          throw new Error(`Failed to process earnings: ${earnError}`);
+        }
+
+        setSuccessMessage(`🎉 Lead converted! ₹${commission} commission (${rate}%) added to your earnings.`);
+        setTimeout(() => setSuccessMessage(''), 5000);
+      }
+
+      setLeads(prev => [newLead, ...prev]);
+      setForm(emptyForm);
+      setShowModal(false);
+    } catch (error) {
+      console.error('Error adding lead:', error);
+      setError(error.message || 'Failed to add lead');
+    } finally {
       setSubmitting(false);
-      return;
     }
-
-    // Add new lead to state
-    setLeads(prev => [newLead, ...prev]);
-    setForm(emptyForm);
-    setShowModal(false);
-    setSubmitting(false);
   };
 
   // Handle status change
@@ -106,8 +143,8 @@ export default function LeadsPage() {
     }
 
     // Otherwise, update status directly
-    const { success, error: err } = await updateLeadStatus(leadId, newStatus);
-    
+    const { error: err } = await updateLeadStatus(leadId, newStatus);
+
     if (err) {
       setError(`Failed to update lead: ${err}`);
       return;
@@ -131,41 +168,45 @@ export default function LeadsPage() {
     setConvertingLead(true);
     setError('');
 
-    const { success, commission, rate, error: err } = await processLeadConversion(
-      conversionLead.id,
-      currentUser.id,
-      parseFloat(dealAmount)
-    );
+    try {
+      const { commission, rate, error: err } = await processLeadConversion(
+        conversionLead.id,
+        currentUser.id,
+        parseFloat(dealAmount)
+      );
 
-    if (err) {
-      setError(`Failed to convert lead: ${err}`);
+      if (err) {
+        throw new Error(`Failed to convert lead: ${err}`);
+      }
+
+      // Update lead in state
+      setLeads(prev =>
+        prev.map(lead =>
+          lead.id === conversionLead.id ? { ...lead, status: 'Converted' } : lead
+        )
+      );
+
+      // Show success toast
+      showToast(`🎉 Lead converted! ₹${Math.round(commission).toLocaleString('en-IN')} commission (${rate}%) added to your earnings.`, 'success');
+
+      // Close modal
+      setShowConversionModal(false);
+      setConversionLead(null);
+      setDealAmount('');
+    } catch (error) {
+      console.error('Error converting lead:', error);
+      setError(error.message || 'Failed to convert lead');
+    } finally {
       setConvertingLead(false);
-      return;
     }
-
-    // Update lead in state
-    setLeads(prev => 
-      prev.map(lead => 
-        lead.id === conversionLead.id ? { ...lead, status: 'Converted' } : lead
-      )
-    );
-
-    // Show success toast
-    showToast(`🎉 Lead converted! ₹${Math.round(commission).toLocaleString('en-IN')} commission added to your earnings.`, 'success');
-
-    // Close modal
-    setShowConversionModal(false);
-    setConversionLead(null);
-    setDealAmount('');
-    setConvertingLead(false);
   };
 
   // Handle deleting a lead
   const handleDeleteLead = async (leadId) => {
     if (!window.confirm('Are you sure you want to delete this lead?')) return;
 
-    const { success, error: err } = await deleteLead(leadId);
-    
+    const { error: err } = await deleteLead(leadId);
+
     if (err) {
       setError(`Failed to delete lead: ${err}`);
       return;
@@ -189,7 +230,7 @@ export default function LeadsPage() {
     All: leads.length,
     pending: leads.filter(l => l.status === 'pending').length,
     'follow-up': leads.filter(l => l.status === 'follow-up').length,
-    converted: leads.filter(l => l.status === 'converted').length,
+    Converted: leads.filter(l => l.status === 'Converted').length,
   };
 
   // Loading state
@@ -262,6 +303,12 @@ export default function LeadsPage() {
         </div>
       </div>
 
+      {successMessage && (
+        <div className="flex items-center gap-3 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-400 text-sm font-medium">
+          {successMessage}
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-dark-700 border border-dark-400 rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
@@ -319,7 +366,7 @@ export default function LeadsPage() {
                       >
                         <option value="pending">Pending</option>
                         <option value="follow-up">Follow-up</option>
-                        <option value="converted">Converted</option>
+                        <option value="Converted">Converted</option>
                       </select>
                     </td>
                     <td className="px-5 py-3.5 hidden lg:table-cell text-center">
@@ -340,7 +387,7 @@ export default function LeadsPage() {
 
       {/* Add Lead Modal */}
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add New Lead">
-        <form onSubmit={handleAddLead} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <Input
             label="Client Name *"
             type="text"
@@ -363,8 +410,26 @@ export default function LeadsPage() {
           <Select label="Status" value={form.status} onChange={update('status')}>
             <option value="pending">Pending</option>
             <option value="follow-up">Follow-up</option>
-            <option value="converted">Converted</option>
+            <option value="Converted">Converted</option>
           </Select>
+          {form.status === 'Converted' && (
+            <div className="space-y-1">
+              <label className="block text-xs text-slate-400 font-medium tracking-wide uppercase">
+                Deal Value (₹) *
+              </label>
+              <input
+                type="number"
+                min="1"
+                placeholder="Enter deal value e.g. 15000"
+                value={form.dealAmount || ''}
+                onChange={e => setForm(f => ({ ...f, dealAmount: e.target.value }))}
+                className="w-full bg-dark-600 border border-dark-400 rounded-xl text-sm text-white px-4 py-2.5 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/20 transition-all"
+              />
+              <p className="text-xs text-amber-400/70">
+                Commission will be calculated automatically (10% or 15%)
+              </p>
+            </div>
+          )}
           <div>
             <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Notes</label>
             <textarea

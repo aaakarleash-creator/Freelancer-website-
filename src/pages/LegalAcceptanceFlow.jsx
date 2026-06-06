@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { LEGAL_TEXT } from '../constants/legalText';
 
 export default function LegalAcceptanceFlow({ onComplete }) {
-  const { currentUser } = useAuth();
+  const { currentUser, setCurrentUser, setRequiresLegal } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [isScrolledToBottom, setIsScrolledToBottom] = useState(false);
   const [hasAgreed, setHasAgreed] = useState(false);
@@ -85,6 +85,7 @@ export default function LegalAcceptanceFlow({ onComplete }) {
     setIsSubmitting(true);
 
     try {
+      console.log('🔄 Updating user profile with legal acceptance data...');
       const { error: updateError } = await supabase
         .from('users')
         .update({
@@ -98,8 +99,14 @@ export default function LegalAcceptanceFlow({ onComplete }) {
         })
         .eq('id', currentUser.id);
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error('❌ User update error:', updateError);
+        throw updateError;
+      }
 
+      console.log('✅ User profile updated successfully');
+
+      console.log('🔄 Inserting agreement record...');
       const { error: insertError } = await supabase
         .from('agreements')
         .insert([{
@@ -116,14 +123,42 @@ export default function LegalAcceptanceFlow({ onComplete }) {
           created_at:        new Date().toISOString(),
         }]);
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error('❌ Agreement insert error:', insertError);
+        throw insertError;
+      }
 
-      // onComplete triggers refetchUser in AuthContext which re-evaluates requiresLegal
-      // Do NOT set isSubmitting(false) here — the component will unmount on success
-      onComplete?.();
+      console.log('✅ Agreement record inserted successfully');
+
+      // Manually update the auth state to redirect to dashboard
+      console.log('🔄 Manually updating auth state...');
+
+      // Update the current user with the new profile data
+      const updatedUser = {
+        ...currentUser,
+        accepted_terms_at: new Date().toISOString(),
+        accepted_privacy_at: new Date().toISOString(),
+        accepted_agreement_at: new Date().toISOString(),
+        accepted_terms_version: '1.0',
+        requires_legal_acceptance: false,
+        phone: formData.phone,
+      };
+
+      setCurrentUser(updatedUser);
+      setRequiresLegal(false);
+
+      console.log('✅ Auth state updated, should redirect to dashboard now');
+
+      // Small delay to ensure state updates are processed before component unmounts
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Call onComplete if provided (for refetchUser)
+      if (onComplete) {
+        await onComplete();
+      }
 
     } catch (err) {
-      console.error('Legal acceptance error:', err);
+      console.error('❌ Legal acceptance error:', err);
       setError(err.message || 'Failed to save. Please try again.');
       setIsSubmitting(false); // Only reset on error, not on success
     }

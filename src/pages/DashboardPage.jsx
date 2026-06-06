@@ -5,7 +5,7 @@ import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
 import { getUserLeads } from '../utils/leadService';
 import { getLeaderboard } from '../utils/leaderboardService';
-import { calculateTotalEarnings } from '../utils/earningsService';
+import { getUserEarnings } from '../utils/earningsService';
 
 // ============================================================
 // DashboardPage — main home view after login
@@ -32,9 +32,10 @@ export default function DashboardPage({ onNavigate }) {
       setLeaderboard(leaderboardData || []);
 
       // Fetch total earnings for current user
-      const { total: earnings, error: earningsError } = await calculateTotalEarnings(currentUser.id);
+      const { data: earningsData, error: earningsError } = await getUserEarnings(currentUser.id);
       if (earningsError) throw earningsError;
-      setTotalEarnings(earnings || 0);
+      const total = (earningsData || []).reduce((sum, e) => sum + (parseFloat(e.commission) || 0), 0);
+      setTotalEarnings(total || 0);
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     }

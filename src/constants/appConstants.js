@@ -27,6 +27,7 @@ export const LEAD_STATUS = {
 // Payout statuses
 export const PAYOUT_STATUS = {
   PENDING: 'pending',
+  REQUESTED: 'requested',
   PAID: 'paid',
   REJECTED: 'rejected',
 };

@@ -1,11 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, TrendingUp, AlertCircle } from 'lucide-react';
+import { Trophy } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getLeaderboard } from '../utils/leaderboardService';
-
-// ============================================================
-// LeaderboardPage — Supabase-powered leaderboard
-// ============================================================
+import { supabase } from '../utils/supabaseClient';
 
 const medalColors = {
   0: { bg: 'from-yellow-500/20 to-amber-600/10', border: 'border-yellow-500/30', text: 'text-yellow-400', badge: '🥇' },
@@ -17,33 +13,65 @@ export default function LeaderboardPage() {
   const { currentUser } = useAuth();
   const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
 
   useEffect(() => {
+    const fetchLeaderboard = async () => {
+      setLoading(true);
+      // Get all users with their converted lead counts and total earnings
+      const { data: users, error: usersError } = await supabase
+        .from('users')
+        .select('id, name, designation, role')
+        .eq('status', 'active');
+
+      if (usersError) { setLoading(false); return; }
+
+      // For each user get their stats
+      const withStats = await Promise.all(users.map(async (user) => {
+        const { count: convertedCount } = await supabase
+          .from('leads')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('status', 'Converted');
+
+        const { data: earningsData } = await supabase
+          .from('earnings')
+          .select('commission')
+          .eq('user_id', user.id);
+
+        const totalEarnings = (earningsData || []).reduce(
+          (sum, e) => sum + parseFloat(e.commission || 0), 0
+        );
+
+        return {
+          ...user,
+          convertedClients: convertedCount || 0,
+          earnings: totalEarnings,
+          avatar: user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+        };
+      }));
+
+      // Sort by convertedClients descending, then by earnings
+      const sorted = withStats
+        .sort((a, b) => b.convertedClients - a.convertedClients || b.earnings - a.earnings)
+        .map((u, i) => ({
+          ...u,
+          rank: i + 1,
+          badge: i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : null,
+        }));
+
+      setLeaderboard(sorted);
+      setLoading(false);
+    };
+
     fetchLeaderboard();
   }, []);
-
-  const fetchLeaderboard = async () => {
-    setLoading(true);
-    setError('');
-    const { leaderboard: data, error: err } = await getLeaderboard();
-
-    if (err) {
-      setError(`Failed to load leaderboard: ${err}`);
-      setLeaderboard([]);
-    } else {
-      setLeaderboard(data);
-    }
-    setLoading(false);
-  };
 
   const getInitials = (name) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
   };
 
   const top3 = leaderboard.slice(0, 3);
-  const rest = leaderboard.slice(3);
-  const maxConversions = leaderboard[0]?.convertedLeads || 1;
+  const maxConversions = leaderboard[0]?.convertedClients || 1;
 
   if (loading) {
     return (
@@ -63,32 +91,14 @@ export default function LeaderboardPage() {
         <p className="text-slate-500 text-sm mt-0.5">Ranked by converted leads</p>
       </div>
 
-      {error && (
-        <div className="flex gap-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-          <AlertCircle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-red-400">{error}</p>
-          <button
-            onClick={fetchLeaderboard}
-            className="text-red-400 hover:text-red-300 ml-auto text-sm font-medium"
-          >
-            Retry
-          </button>
-        </div>
-      )}
-
       {/* Podium — top 3 */}
       {top3.length > 0 && (
-        // FIX 1: Added pt-8 (more room for the -top-3 badge + scale overflow)
-        // FIX 2: Added items-end so shorter cards align to bottom (real podium feel)
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-12 items-end px-2">
           {[top3[1], top3[0], top3[2]].filter(Boolean).map((user, visualIdx) => {
             const realIdx = visualIdx === 0 ? 1 : visualIdx === 1 ? 0 : 2;
             const m = medalColors[realIdx];
             const isFirst = realIdx === 0;
             return (
-              // FIX 3: Removed sm:scale-105 — scaling causes the card to visually
-              // overflow its grid cell and get clipped. Instead we use a larger
-              // ring + extra top padding to make #1 stand out without overflow.
               <div
                 key={user.id}
                 className={`
@@ -101,8 +111,6 @@ export default function LeaderboardPage() {
                 `}
               >
                 {isFirst && (
-                  // FIX 4: Changed -top-3 to -top-4 and ensured pt-8 on parent
-                  // gives enough clearance so the badge never clips
                   <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap z-10">
                     <div className="bg-gradient-to-r from-amber-500 to-yellow-400 text-dark-900 text-xs font-bold px-3 py-1 rounded-full shadow-gold">
                       #1 Champion
@@ -127,7 +135,7 @@ export default function LeaderboardPage() {
                   {getInitials(user.name)}
                 </div>
                 <p className="font-display font-semibold text-white text-sm line-clamp-2">{user.name}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{user.convertedLeads} conversions</p>
+                <p className="text-xs text-slate-500 mt-0.5">{user.convertedClients} conversions</p>
                 <p className={`text-xl font-bold font-mono mt-2 ${m.text}`}>
                   Rank: {user.rank}
                 </p>
@@ -159,7 +167,7 @@ export default function LeaderboardPage() {
               {leaderboard.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="text-center py-12 text-slate-600 text-sm">
-                    No users on leaderboard yet
+                    No data yet — start converting leads!
                   </td>
                 </tr>
               ) : (
@@ -213,10 +221,10 @@ export default function LeaderboardPage() {
                           >
                             <div
                               className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 rounded-full"
-                              style={{ width: `${(user.convertedLeads / maxConversions) * 100}%` }}
+                              style={{ width: `${(user.convertedClients / maxConversions) * 100}%` }}
                             />
                           </div>
-                          <span className="text-slate-300 text-sm w-6 text-right">{user.convertedLeads}</span>
+                          <span className="text-slate-300 text-sm w-6 text-right">{user.convertedClients}</span>
                         </div>
                       </td>
                       <td className="px-5 py-3.5 text-right">

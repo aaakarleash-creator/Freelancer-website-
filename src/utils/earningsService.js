@@ -1,294 +1,230 @@
-// File: src/utils/earningsService.js
-// Purpose: Handle all earnings and commission operations
-// Track payouts, commissions, and financial data
+import { supabase } from './supabaseClient';
 
-import { supabase } from '../supabaseClient';
+// SUPABASE SQL — run this before using earnings features:
+// ALTER TABLE earnings ADD COLUMN IF NOT EXISTS lead_id uuid REFERENCES leads(id);
 
-/**
- * Get all earnings for a user
- * 
- * @param {string} userId - User ID
- * @returns {object} { earnings, error }
- */
-export const getUserEarnings = async (userId) => {
-  try {
-    const { data, error } = await supabase
-      .from('earnings')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      return { earnings: [], error: error.message };
-    }
-
-    return { earnings: data || [], error: null };
-  } catch (err) {
-    return { earnings: [], error: err.message };
-  }
-};
-
-/**
- * Calculate total earnings for a user (sum of commissions)
- * 
- * @param {string} userId - User ID
- * @returns {object} { total, error }
- */
-export const calculateTotalEarnings = async (userId) => {
-  try {
-    const { data, error } = await supabase
-      .from('earnings')
-      .select('commission')
-      .eq('user_id', userId);
-
-    if (error) {
-      return { total: 0, error: error.message };
-    }
-
-    const total = data.reduce((sum, row) => sum + (parseFloat(row.commission) || 0), 0);
-    return { total, error: null };
-  } catch (err) {
-    return { total: 0, error: err.message };
-  }
-};
-
-/**
- * Calculate total commission earned
- * Sums all commissions in earnings table
- * Commission = 10% or 15% of amount
- * 
- * @param {string} userId - User ID
- * @returns {object} { totalCommission, error }
- */
-export const calculateTotalCommission = async (userId) => {
-  try {
-    const { data, error } = await supabase
-      .from('earnings')
-      .select('commission')
-      .eq('user_id', userId);
-
-    if (error) {
-      return { totalCommission: 0, error: error.message };
-    }
-
-    const totalCommission = data.reduce((sum, row) => sum + (parseFloat(row.commission) || 0), 0);
-    return { totalCommission, error: null };
-  } catch (err) {
-    return { totalCommission: 0, error: err.message };
-  }
-};
-
-/**
- * Get pending payouts (not yet paid)
- * 
- * @param {string} userId - User ID
- * @returns {object} { pendingAmount, count, error }
- */
-export const getPendingPayouts = async (userId) => {
-  try {
-    const { data, error } = await supabase
-      .from('earnings')
-      .select('commission')
-      .eq('user_id', userId)
-      .eq('payout_status', 'pending');
-
-    if (error) {
-      return { pendingAmount: 0, count: 0, error: error.message };
-    }
-
-    const pendingAmount = data.reduce((sum, row) => sum + (parseFloat(row.commission) || 0), 0);
-    return { pendingAmount, count: data.length, error: null };
-  } catch (err) {
-    return { pendingAmount: 0, count: 0, error: err.message };
-  }
-};
-
-/**
- * Get paid payouts (already paid)
- * 
- * @param {string} userId - User ID
- * @returns {object} { paidAmount, count, error }
- */
-export const getPaidPayouts = async (userId) => {
-  try {
-    const { data, error } = await supabase
-      .from('earnings')
-      .select('commission')
-      .eq('user_id', userId)
-      .eq('payout_status', 'paid');
-
-    if (error) {
-      return { paidAmount: 0, count: 0, error: error.message };
-    }
-
-    const paidAmount = data.reduce((sum, row) => sum + (parseFloat(row.commission) || 0), 0);
-    return { paidAmount, count: data.length, error: null };
-  } catch (err) {
-    return { paidAmount: 0, count: 0, error: err.message };
-  }
-};
-
-/**
- * Add new earnings entry (admin function)
- * Called when a lead is converted
- * 
- * @param {object} earningsData - { user_id, amount, commission, payout_status }
- * @returns {object} { earning, error }
- */
-export const addEarnings = async (earningsData) => {
-  try {
-    const { data, error } = await supabase
-      .from('earnings')
-      .insert([
-        {
-          user_id: earningsData.user_id,
-          amount: earningsData.amount || 0,
-          commission: earningsData.commission || 0,
-          payout_status: earningsData.payout_status || 'pending',
-          created_at: new Date().toISOString(),
-        },
-      ])
-      .select();
-
-    if (error) {
-      return { earning: null, error: error.message };
-    }
-
-    return { earning: data[0], error: null };
-  } catch (err) {
-    return { earning: null, error: err.message };
-  }
-};
-
-/**
- * Update payout status (admin function)
- * Mark earnings as paid or rejected
- * 
- * @param {string} earningId - Earning ID to update
- * @param {string} newStatus - 'pending', 'paid', or 'rejected'
- * @returns {object} { success, error }
- */
-export const updatePayoutStatus = async (earningId, newStatus) => {
-  try {
-    const { error } = await supabase
-      .from('earnings')
-      .update({ payout_status: newStatus })
-      .eq('id', earningId);
-
-    if (error) {
-      return { success: false, error: error.message };
-    }
-
-    return { success: true, error: null };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-};
-
-/**
- * Calculate commission based on converted leads
- * 10% base commission, 15% for top performers (10+ conversions)
- * 
- * @param {number} amount - Base amount
- * @param {number} convertedLeads - User's total converted leads
- * @returns {number} Commission amount
- */
-export const calculateCommissionRate = (amount, convertedLeads = 0) => {
-  const rate = convertedLeads >= 10 ? 0.15 : 0.10;
-  return amount * rate;
-};
-
-/**
- * Process lead conversion: update lead status, calculate commission, insert earnings
- * 
- * @param {string} leadId - ID of the lead being converted
- * @param {string} userId - Current user ID
- * @param {number} dealAmount - Deal value in rupees
- * @returns {object} { success, commission, rate, error }
- */
 export const processLeadConversion = async (leadId, userId, dealAmount) => {
   try {
-    // 1. Update lead status to "Converted"
-    const { error: updateError } = await supabase
+    // 1. Update lead status to Converted
+    const { error: leadError } = await supabase
       .from('leads')
       .update({ status: 'Converted' })
       .eq('id', leadId);
 
-    if (updateError) {
-      return { success: false, commission: 0, rate: 0, error: updateError.message };
-    }
+    if (leadError) throw leadError;
 
-    // 2. Fetch user's total converted leads count
+    // 2. Count total converted leads for this user to determine commission rate
     const { count, error: countError } = await supabase
       .from('leads')
-      .select('id', { count: 'exact' })
+      .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
       .eq('status', 'Converted');
 
-    if (countError) {
-      return { success: false, commission: 0, rate: 0, error: countError.message };
-    }
+    if (countError) throw countError;
 
-    // 3. Determine commission rate based on converted leads count
-    const rate = count >= 10 ? 15 : 10;
-    const commission = dealAmount * (rate / 100);
+    // 3. Commission rate: 15% if 10+ conversions, else 10%
+    const rate = (count >= 10) ? 15 : 10;
+    const commission = parseFloat((dealAmount * (rate / 100)).toFixed(2));
 
-    // 4. Insert earnings record
-    const { error: insertError } = await supabase
+    // 4. Insert earnings record with lead_id for joining later
+    const { error: earningsError } = await supabase
       .from('earnings')
-      .insert([
-        {
-          user_id: userId,
-          amount: dealAmount,
-          commission: commission,
-          payout_status: 'pending',
-          created_at: new Date().toISOString(),
-        },
-      ]);
+      .insert({
+        user_id:       userId,
+        lead_id:       leadId,
+        amount:        dealAmount,
+        commission:    commission,
+        payout_status: 'pending',
+        created_at:    new Date().toISOString(),
+      });
 
-    if (insertError) {
-      return { success: false, commission: 0, rate: 0, error: insertError.message };
-    }
+    if (earningsError) throw earningsError;
 
     return { success: true, commission, rate, error: null };
   } catch (err) {
-    return { success: false, commission: 0, rate: 0, error: err.message };
+    console.error('processLeadConversion error:', err);
+    return { success: false, commission: 0, rate: 10, error: err.message };
   }
 };
 
-/**
- * Request payout: update all pending earnings to 'requested' status
- * Minimum payout amount is ₹500
- * 
- * @param {string} userId - User ID
- * @returns {object} { success, error }
- */
+// Fetch earnings with client names joined from leads table
+export const getUserEarnings = async (userId) => {
+  try {
+    const { data, error } = await supabase
+      .from('earnings')
+      .select(`
+        id,
+        amount,
+        commission,
+        payout_status,
+        created_at,
+        lead_id,
+        leads (
+          client_name,
+          service
+        )
+      `)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return { data: data || [], error: null };
+  } catch (err) {
+    return { data: [], error: err.message };
+  }
+};
+
+// Fetch ALL earnings for admin view (all users)
+export const getAllEarnings = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('earnings')
+      .select(`
+        id,
+        amount,
+        commission,
+        payout_status,
+        created_at,
+        lead_id,
+        user_id,
+        leads ( client_name, service ),
+        users ( name, email )
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return { data: data || [], error: null };
+  } catch (err) {
+    return { data: [], error: err.message };
+  }
+};
+
+// Request payout — moves all pending earnings to 'requested'
 export const requestPayout = async (userId) => {
   try {
-    // Get pending amount first to check if >= 500
-    const { pendingAmount, error: getError } = await getPendingPayouts(userId);
-    
-    if (getError) {
-      return { success: false, error: getError };
+    console.log('🔄 Requesting payout for user:', userId);
+
+    // First, let's see what earnings exist for this user
+    const { data: allEarnings, error: fetchError } = await supabase
+      .from('earnings')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (fetchError) {
+      console.error('Error fetching user earnings:', fetchError);
+      throw fetchError;
     }
 
-    if (pendingAmount < 500) {
-      return { success: false, error: 'Minimum payout amount is ₹500' };
+    console.log('📊 All earnings for user:', allEarnings);
+    console.log('📊 Total earnings count:', allEarnings?.length || 0);
+
+    if (!allEarnings || allEarnings.length === 0) {
+      console.log('⚠️ No earnings found at all for this user');
+      return { success: false, error: 'No earnings found' };
     }
 
-    // Update all pending earnings to 'requested'
-    const { error: updateError } = await supabase
+    // Count pending earnings specifically
+    const pendingEarnings = allEarnings.filter(e => e.payout_status === 'pending');
+    console.log('📊 Pending earnings count:', pendingEarnings.length);
+
+    if (pendingEarnings.length === 0) {
+      console.warn('⚠️ No pending earnings found to update');
+      return { success: false, error: 'No pending earnings found' };
+    }
+
+    // Now perform the update
+    const { data, error } = await supabase
       .from('earnings')
       .update({ payout_status: 'requested' })
       .eq('user_id', userId)
-      .eq('payout_status', 'pending');
+      .eq('payout_status', 'pending')
+      .select();
 
-    if (updateError) {
-      return { success: false, error: updateError.message };
+    console.log('📊 Update result:', { data, error, updatedCount: data?.length || 0 });
+
+    if (error) {
+      console.error('❌ Supabase error in requestPayout:', error);
+      throw error;
     }
 
-    return { success: true, error: null };
+    if (!data || data.length === 0) {
+      console.warn('⚠️ Update returned no data');
+      return { success: false, error: 'Update failed' };
+    }
+
+    console.log('✅ Payout requested successfully, updated', data.length, 'rows');
+    return { success: true, error: null, updatedRows: data.length };
   } catch (err) {
+    console.error('❌ Error in requestPayout:', err);
+    return { success: false, error: err.message };
+  }
+};
+
+// Admin: mark earnings as paid and update user's last_payout_date
+export const markEarningsPaid = async (userId) => {
+  try {
+    console.log('🔄 Marking earnings as paid for user:', userId);
+
+    // First, check if there are any requested earnings
+    const { data: requestedEarnings, error: fetchError } = await supabase
+      .from('earnings')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('payout_status', 'requested');
+
+    if (fetchError) {
+      console.error('Error fetching requested earnings:', fetchError);
+      throw fetchError;
+    }
+
+    console.log('📊 Requested earnings count:', requestedEarnings?.length || 0);
+
+    if (!requestedEarnings || requestedEarnings.length === 0) {
+      console.warn('⚠️ No requested earnings found to update');
+      return { success: false, error: 'No requested earnings found' };
+    }
+
+    // Update earnings to paid status
+    const { data, error: earningsError } = await supabase
+      .from('earnings')
+      .update({ payout_status: 'paid' })
+      .eq('user_id', userId)
+      .eq('payout_status', 'requested')
+      .select();
+
+    console.log('📊 Update result:', { data, error: earningsError, updatedCount: data?.length || 0 });
+
+    if (earningsError) {
+      console.error('❌ Error updating earnings status:', earningsError);
+      throw earningsError;
+    }
+
+    if (!data || data.length === 0) {
+      console.warn('⚠️ Update returned no data');
+      return { success: false, error: 'Update failed' };
+    }
+
+    console.log('✅ Updated', data.length, 'earnings to paid status');
+
+    // Then, try to update user's last_payout_date (if column exists)
+    const now = new Date().toISOString();
+    const { error: userError } = await supabase
+      .from('users')
+      .update({ last_payout_date: now })
+      .eq('id', userId);
+
+    if (userError) {
+      console.warn('⚠️ Could not update last_payout_date (column may not exist):', userError);
+      // Don't throw here - the main functionality (marking earnings as paid) worked
+      // This is a nice-to-have feature, not critical
+    } else {
+      console.log('✅ Updated last_payout_date for user');
+    }
+
+    return { success: true, error: null, updatedRows: data.length };
+  } catch (err) {
+    console.error('❌ Error in markEarningsPaid:', err);
     return { success: false, error: err.message };
   }
 };
