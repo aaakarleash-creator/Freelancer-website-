@@ -3,7 +3,7 @@ import { Check, ArrowRight, MessageCircle, Mail, ExternalLink } from 'lucide-rea
 import { SERVICES, COMPANY_INFO, formatPrice } from '../data/services';
 import Button from '../components/Button';
 
-export default function ServicesPage() {
+export default function ServicesPage({ onNavigate }) {
   const [currency, setCurrency] = useState('INR');
   const [expandedService, setExpandedService] = useState(null);
 

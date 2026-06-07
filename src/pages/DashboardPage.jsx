@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, CheckCircle2, DollarSign, ArrowRight } from 'lucide-react';
+import { Users, CheckCircle2, DollarSign, ArrowRight, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../utils/supabaseClient';
 import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
 import { getUserLeads } from '../utils/leadService';
@@ -17,6 +18,7 @@ export default function DashboardPage({ onNavigate }) {
   const [leaderboard, setLeaderboard] = useState([]);
   const [totalEarnings, setTotalEarnings] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [announcements, setAnnouncements] = useState([]);
 
   const fetchDashboardData = useCallback(async () => {
     setLoading(true);
@@ -49,12 +51,50 @@ export default function DashboardPage({ onNavigate }) {
     }
   }, [currentUser?.id, fetchDashboardData]);
 
+  // Fetch announcements
+  useEffect(() => {
+    const fetchAnnouncements = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('announcements')
+          .select('id, title, message, type')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(3);
+        if (!error) setAnnouncements(data || []);
+      } catch (e) {
+        // Table may not exist yet — fail silently
+        setAnnouncements([]);
+      }
+    };
+    fetchAnnouncements();
+  }, []);
+
   const totalLeads = leads.length;
   const converted = leads.filter(l => l.status === 'converted').length;
   const recentLeads = leads.slice(0, 4);
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  // Handle dismiss
+  const dismissAnnouncement = (id) => {
+    const dismissed = JSON.parse(sessionStorage.getItem('dismissedAnnouncements') || '[]');
+    dismissed.push(id);
+    sessionStorage.setItem('dismissedAnnouncements', JSON.stringify(dismissed));
+    setAnnouncements(prev => prev.filter(a => a.id !== id));
+  };
+
+  // Filter out dismissed announcements
+  const dismissed = JSON.parse(sessionStorage.getItem('dismissedAnnouncements') || '[]');
+  const visibleAnnouncements = announcements.filter(a => !dismissed.includes(a.id));
+
+  const typeStyles = {
+    info: 'border-blue-500/30 bg-blue-500/8 text-blue-300',
+    warning: 'border-amber-500/30 bg-amber-500/8 text-amber-300',
+    success: 'border-emerald-500/30 bg-emerald-500/8 text-emerald-300',
+    urgent: 'border-red-500/30 bg-red-500/8 text-red-300',
+  };
 
   if (loading) {
     return (
@@ -86,6 +126,29 @@ export default function DashboardPage({ onNavigate }) {
           Live Dashboard
         </div>
       </div>
+
+      {/* Announcements Banner */}
+      {visibleAnnouncements.length > 0 && (
+        <div className="space-y-3">
+          {visibleAnnouncements.map(announcement => (
+            <div
+              key={announcement.id}
+              className={`border rounded-xl p-4 flex items-start gap-3 ${typeStyles[announcement.type] || typeStyles.info}`}
+            >
+              <p className="flex-1 text-sm">
+                <span className="font-semibold">{announcement.title}</span>
+                {announcement.message && `: ${announcement.message}`}
+              </p>
+              <button
+                onClick={() => dismissAnnouncement(announcement.id)}
+                className="flex-shrink-0 hover:opacity-70 transition-opacity"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Stats row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

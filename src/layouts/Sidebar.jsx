@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import {
   LayoutDashboard, Users, Trophy, DollarSign,
-  UserCircle, ShieldCheck, LogOut, Menu, X, Zap, Briefcase, FileText, Lock
+  UserCircle, ShieldCheck, LogOut, Menu, X, Zap, Briefcase, FileText, Lock,
+  Target, Megaphone, ClipboardList, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Avatar from '../components/Avatar';
@@ -21,14 +22,20 @@ const navItems = [
   { id: 'privacy',      label: 'Privacy Policy', icon: Lock },
 ];
 
-const adminItem = { id: 'admin', label: 'Admin Panel', icon: ShieldCheck };
+const ADMIN_SUB_NAV = [
+  { id: 'admin',               label: 'Overview',       icon: LayoutDashboard },
+  { id: 'admin_freelancers',   label: 'Freelancers',    icon: Users           },
+  { id: 'admin_payouts',       label: 'Payouts',        icon: DollarSign      },
+  { id: 'admin_leads',         label: 'Lead Oversight', icon: Target          },
+  { id: 'admin_announcements', label: 'Announcements',  icon: Megaphone       },
+  { id: 'admin_audit',         label: 'Audit Log',      icon: ClipboardList   },
+];
 
 export default function Sidebar({ activePage, onNavigate }) {
   const { currentUser, logout, isAdmin } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [adminExpanded, setAdminExpanded] = useState(activePage?.startsWith('admin'));
   const [loggingOut, setLoggingOut] = useState(false);
-
-  const items = isAdmin ? [...navItems, adminItem] : navItems;
 
   // Handle logout - now async
   const handleLogout = async () => {
@@ -37,7 +44,7 @@ export default function Sidebar({ activePage, onNavigate }) {
     setLoggingOut(false);
   };
 
-  const NavLink = ({ item }) => {
+  const NavLink = ({ item, isSubItem = false }) => {
     const isActive = activePage === item.id;
     const Icon = item.icon;
     return (
@@ -46,22 +53,18 @@ export default function Sidebar({ activePage, onNavigate }) {
         className={`
           w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium
           transition-all duration-200 group relative
+          ${isSubItem ? 'text-xs' : ''}
           ${isActive
             ? 'bg-gradient-to-r from-amber-500/15 to-amber-500/5 text-amber-400 border border-amber-500/20'
             : 'text-slate-400 hover:text-slate-200 hover:bg-dark-600'
           }
         `}
       >
-        {isActive && (
+        {isActive && !isSubItem && (
           <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-amber-400 rounded-r-full" />
         )}
-        <Icon size={17} className={isActive ? 'text-amber-400' : 'text-slate-500 group-hover:text-slate-300'} />
+        <Icon size={isSubItem ? 14 : 17} className={isActive ? 'text-amber-400' : 'text-slate-500 group-hover:text-slate-300'} />
         <span>{item.label}</span>
-        {item.id === 'admin' && (
-          <span className="ml-auto text-xs bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded-md border border-purple-500/20">
-            Admin
-          </span>
-        )}
       </button>
     );
   };
@@ -85,7 +88,39 @@ export default function Sidebar({ activePage, onNavigate }) {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {items.map(item => <NavLink key={item.id} item={item} />)}
+        {navItems.map(item => <NavLink key={item.id} item={item} />)}
+        
+        {/* Admin Section */}
+        {isAdmin && (
+          <div>
+            <button
+              onClick={() => setAdminExpanded(!adminExpanded)}
+              className={`
+                w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium
+                transition-all duration-200 group relative
+                ${activePage?.startsWith('admin')
+                  ? 'bg-gradient-to-r from-amber-500/15 to-amber-500/5 text-amber-400 border border-amber-500/20'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-dark-600'
+                }
+              `}
+            >
+              {activePage?.startsWith('admin') && (
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-amber-400 rounded-r-full" />
+              )}
+              <ShieldCheck size={17} className={activePage?.startsWith('admin') ? 'text-amber-400' : 'text-slate-500 group-hover:text-slate-300'} />
+              <span>Admin</span>
+              {adminExpanded ? <ChevronUp size={14} className="ml-auto" /> : <ChevronDown size={14} className="ml-auto" />}
+            </button>
+            
+            {adminExpanded && (
+              <div className="pl-8 pt-1 space-y-1">
+                {ADMIN_SUB_NAV.map(item => (
+                  <NavLink key={item.id} item={item} isSubItem />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
 
       {/* User section */}

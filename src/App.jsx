@@ -10,6 +10,7 @@ import LeadsPage from './pages/LeadsPage';
 import LeaderboardPage from './pages/LeaderboardPage';
 import EarningsPage from './pages/EarningsPage';
 import ProfilePage from './pages/ProfilePage';
+import ServicesPage from './pages/ServicesPage';
 import AdminPage from './pages/AdminPage';
 import TermsConditionsPage from './pages/TermsConditionsPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
@@ -60,20 +61,27 @@ function AppRouter() {
   }
 
   // 4. Logged in + legal done — show dashboard
-  const safePage = activePage === 'admin' && !isAdmin ? 'dashboard' : activePage;
+  const adminPages = ['admin', 'admin_freelancers', 'admin_payouts', 'admin_leads', 'admin_announcements', 'admin_audit'];
+  const safePage = adminPages.includes(activePage) && !isAdmin ? 'dashboard' : activePage;
   console.log('🏠 Showing dashboard...');
 
   const renderPage = () => {
     switch (safePage) {
-      case 'dashboard':   return <DashboardPage   onNavigate={setActivePage} />;
-      case 'leads':       return <LeadsPage        onNavigate={setActivePage} />;
-      case 'leaderboard': return <LeaderboardPage  onNavigate={setActivePage} />;
-      case 'earnings':    return <EarningsPage     onNavigate={setActivePage} />;
-      case 'profile':     return <ProfilePage      onNavigate={setActivePage} />;
-      case 'terms':       return <TermsConditionsPage  onNavigate={setActivePage} />;
-      case 'privacy':     return <PrivacyPolicyPage    onNavigate={setActivePage} />;
-      case 'admin':       return <AdminPage        onNavigate={setActivePage} />;
-      default:            return <DashboardPage    onNavigate={setActivePage} />;
+      case 'dashboard':            return <DashboardPage       onNavigate={setActivePage} />;
+      case 'services':             return <ServicesPage        onNavigate={setActivePage} />;
+      case 'leads':                return <LeadsPage           onNavigate={setActivePage} />;
+      case 'leaderboard':          return <LeaderboardPage     onNavigate={setActivePage} />;
+      case 'earnings':             return <EarningsPage        onNavigate={setActivePage} />;
+      case 'profile':              return <ProfilePage         onNavigate={setActivePage} />;
+      case 'terms':                return <TermsConditionsPage onNavigate={setActivePage} />;
+      case 'privacy':              return <PrivacyPolicyPage   onNavigate={setActivePage} />;
+      case 'admin':                return <AdminPage           initialTab="overview"       onNavigate={setActivePage} />;
+      case 'admin_freelancers':    return <AdminPage           initialTab="freelancers"    onNavigate={setActivePage} />;
+      case 'admin_payouts':        return <AdminPage           initialTab="payouts"        onNavigate={setActivePage} />;
+      case 'admin_leads':          return <AdminPage           initialTab="leads"          onNavigate={setActivePage} />;
+      case 'admin_announcements':  return <AdminPage           initialTab="announcements"  onNavigate={setActivePage} />;
+      case 'admin_audit':          return <AdminPage           initialTab="audit"          onNavigate={setActivePage} />;
+      default:                     return <DashboardPage       onNavigate={setActivePage} />;
     }
   };
 
