@@ -138,15 +138,12 @@ function OverviewTab() {
   const fetchData = async () => {
     setRefreshing(true);
     try {
-      const [
-        { count: totalFreelancers },
-        { count: activeFreelancers },
-        { count: totalLeads },
-        { count: convertedLeads },
-        { data: earningsData },
-        { data: recentUsers },
-        { data: recentConversions },
-      ] = await Promise.all([
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 15000)
+      );
+      
+      const dataPromise = Promise.all([
         supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'freelancer'),
         supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'freelancer').eq('status', 'active'),
         supabase.from('leads').select('id', { count: 'exact', head: true }),
@@ -155,6 +152,24 @@ function OverviewTab() {
         supabase.from('users').select('id, name, email, designation, role, created_at').order('created_at', { ascending: false }).limit(5),
         supabase.from('leads').select('id, client_name, service, created_at, user_id, users(name)').eq('status', 'Converted').order('created_at', { ascending: false }).limit(5),
       ]);
+      
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      // Handle timeout case
+      if (result instanceof Error) {
+        console.error('Admin overview fetch timed out');
+        throw result;
+      }
+      
+      const [
+        { count: totalFreelancers },
+        { count: activeFreelancers },
+        { count: totalLeads },
+        { count: convertedLeads },
+        { data: earningsData },
+        { data: recentUsers },
+        { data: recentConversions },
+      ] = result;
 
       const totalRevenue = (earningsData || []).reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
       const totalCommissions = (earningsData || []).reduce((sum, e) => sum + (parseFloat(e.commission) || 0), 0);
@@ -175,6 +190,9 @@ function OverviewTab() {
       setRecentConversions(recentConversions || []);
     } catch (error) {
       console.error('Error fetching overview stats:', error);
+      if (error.message === 'Request timeout') {
+        console.warn('Admin overview fetch timed out, keeping existing data');
+      }
     } finally {
       setRefreshing(false);
     }
@@ -349,17 +367,39 @@ function FreelancersTab({
   const loadDrawerData = useCallback(async (user) => {
     setDrawerLoading(true);
     try {
-      const [
-        { data: leads },
-        { data: earnings },
-        { data: bankRows },
-        { data: agreements },
-      ] = await Promise.all([
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
+      const dataPromise = Promise.all([
         supabase.from('leads').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
         supabase.from('earnings').select('*, leads(client_name, service)').eq('user_id', user.id).order('created_at', { ascending: false }),
         supabase.from('bank_details').select('*').eq('user_id', user.id),
         supabase.from('agreements').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
       ]);
+      
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      // Handle timeout case
+      if (result instanceof Error) {
+        console.error('Drawer data fetch timed out, using empty state');
+        setDrawerData({
+          leads: [],
+          earnings: [],
+          bankDetail: null,
+          agreement: null,
+        });
+        setDrawerLoading(false);
+        return;
+      }
+      
+      const [
+        { data: leads },
+        { data: earnings },
+        { data: bankRows },
+        { data: agreements },
+      ] = result;
 
       setDrawerData({
         leads: leads || [],
@@ -369,6 +409,12 @@ function FreelancersTab({
       });
     } catch (error) {
       console.error('Error loading drawer data:', error);
+      setDrawerData({
+        leads: [],
+        earnings: [],
+        bankDetail: null,
+        agreement: null,
+      });
     } finally {
       setDrawerLoading(false);
     }
@@ -377,14 +423,34 @@ function FreelancersTab({
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [{ data: usersData }, { data: bankData }] = await Promise.all([
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 15000)
+      );
+      
+      const dataPromise = Promise.all([
         supabase.from('users').select('*').order('created_at', { ascending: false }),
         supabase.from('bank_details').select('*'),
       ]);
+      
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      // Handle timeout case
+      if (result instanceof Error) {
+        console.error('Freelancers data fetch timed out, using empty state');
+        setUsers([]);
+        setBankDetails([]);
+        setLoading(false);
+        return;
+      }
+      
+      const [{ data: usersData }, { data: bankData }] = result;
       setUsers(usersData || []);
       setBankDetails(bankData || []);
     } catch (error) {
       console.error('Error fetching freelancers:', error);
+      setUsers([]);
+      setBankDetails([]);
     } finally {
       setLoading(false);
     }
@@ -1201,17 +1267,37 @@ function PayoutsTab() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [
-        { data: earnings },
-        { data: bank },
-      ] = await Promise.all([
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 15000)
+      );
+      
+      const dataPromise = Promise.all([
         supabase.from('earnings').select('*, users(id, name, email), leads(client_name)').eq('payout_status', 'requested').order('created_at', { ascending: false }),
         supabase.from('bank_details').select('*'),
       ]);
+      
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      // Handle timeout case
+      if (result instanceof Error) {
+        console.error('Payouts data fetch timed out, using empty state');
+        setEarningsData([]);
+        setBankData([]);
+        setLoading(false);
+        return;
+      }
+      
+      const [
+        { data: earnings },
+        { data: bank },
+      ] = result;
       setEarningsData(earnings || []);
       setBankData(bank || []);
     } catch (error) {
       console.error('Error fetching payouts:', error);
+      setEarningsData([]);
+      setBankData([]);
     } finally {
       setLoading(false);
     }
@@ -1455,13 +1541,31 @@ function LeadsTab() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data } = await supabase
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 15000)
+      );
+      
+      const dataPromise = supabase
         .from('leads')
         .select('*, users(id, name, email)')
         .order('created_at', { ascending: false });
+      
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      // Handle timeout case
+      if (result instanceof Error) {
+        console.error('Leads data fetch timed out, using empty state');
+        setAllLeads([]);
+        setLoading(false);
+        return;
+      }
+      
+      const { data } = result;
       setAllLeads(data || []);
     } catch (error) {
       console.error('Error fetching leads:', error);
+      setAllLeads([]);
     } finally {
       setLoading(false);
     }
@@ -1668,10 +1772,26 @@ function AnnouncementsTab() {
 
   const fetchAnnouncements = useCallback(async () => {
     try {
-      const { data } = await supabase.from('announcements').select('*').order('created_at', { ascending: false });
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
+      const dataPromise = supabase.from('announcements').select('*').order('created_at', { ascending: false });
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      // Handle timeout case
+      if (result instanceof Error) {
+        console.error('Announcements fetch timed out, using empty state');
+        setAnnouncements([]);
+        return;
+      }
+      
+      const { data } = result;
       setAnnouncements(data || []);
     } catch (error) {
       console.error('Error fetching announcements:', error);
+      setAnnouncements([]);
     }
   }, []);
 
@@ -1959,17 +2079,36 @@ function AuditLogTab() {
 
   const fetchLogs = useCallback(async () => {
     try {
-      const { data, error, count } = await supabase
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 15000)
+      );
+      
+      const dataPromise = supabase
         .from('audit_logs')
         .select('*, users(name, email)', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(page * 50, (page + 1) * 50 - 1);
+      
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      // Handle timeout case
+      if (result instanceof Error) {
+        console.error('Audit logs fetch timed out, using empty state');
+        setLogs([]);
+        setHasMore(false);
+        return;
+      }
+      
+      const { data, error, count } = result;
       
       if (error) throw error;
       setLogs(data || []);
       setHasMore((count || 0) > (page + 1) * 50);
     } catch (error) {
       console.error('Error fetching audit logs:', error);
+      setLogs([]);
+      setHasMore(false);
     }
   }, [page]);
 

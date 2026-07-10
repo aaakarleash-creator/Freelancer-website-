@@ -17,37 +17,79 @@ export default function LeaderboardPage() {
   useEffect(() => {
     const fetchLeaderboard = async () => {
       setLoading(true);
+      
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
       // Get all users with their converted lead counts and total earnings
-      const { data: users, error: usersError } = await supabase
+      const usersPromise = supabase
         .from('users')
         .select('id, name, designation, role')
         .eq('status', 'active');
+      
+      const usersResult = await Promise.race([usersPromise, timeoutPromise]);
+      
+      // Handle timeout case
+      if (usersResult instanceof Error) {
+        console.error('Leaderboard fetch timed out, using empty state');
+        setLeaderboard([]);
+        setLoading(false);
+        return;
+      }
+      
+      const { data: users, error: usersError } = usersResult;
 
-      if (usersError) { setLoading(false); return; }
+      if (usersError) { 
+        console.error('Failed to fetch users for leaderboard:', usersError);
+        setLeaderboard([]);
+        setLoading(false); 
+        return; 
+      }
 
-      // For each user get their stats
+      // For each user get their stats with timeout
       const withStats = await Promise.all(users.map(async (user) => {
-        const { count: convertedCount } = await supabase
-          .from('leads')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .eq('status', 'Converted');
-
-        const { data: earningsData } = await supabase
-          .from('earnings')
-          .select('commission')
-          .eq('user_id', user.id);
-
-        const totalEarnings = (earningsData || []).reduce(
-          (sum, e) => sum + parseFloat(e.commission || 0), 0
+        // Add timeout for each user's stats fetch
+        const statsTimeout = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Stats fetch timeout')), 5000)
         );
+        
+        const statsPromise = (async () => {
+          const { count: convertedCount } = await supabase
+            .from('leads')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .eq('status', 'Converted');
 
-        return {
-          ...user,
-          convertedClients: convertedCount || 0,
-          earnings: totalEarnings,
-          avatar: user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
-        };
+          const { data: earningsData } = await supabase
+            .from('earnings')
+            .select('commission')
+            .eq('user_id', user.id);
+
+          const totalEarnings = (earningsData || []).reduce(
+            (sum, e) => sum + parseFloat(e.commission || 0), 0
+          );
+
+          return {
+            ...user,
+            convertedClients: convertedCount || 0,
+            earnings: totalEarnings,
+            avatar: user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+          };
+        })();
+        
+        try {
+          return await Promise.race([statsPromise, statsTimeout]);
+        } catch (err) {
+          console.warn(`Stats fetch timeout for user ${user.id}, using defaults`);
+          return {
+            ...user,
+            convertedClients: 0,
+            earnings: 0,
+            avatar: user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+          };
+        }
       }));
 
       // Sort by convertedClients descending, then by earnings

@@ -2,32 +2,34 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Search, Phone, AlertCircle, MessageSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { getUserLeads, updateLeadStatus, deleteLead } from '../utils/leadService';
+import { updateLeadStatus, deleteLead } from '../utils/leadService';
 import { processLeadConversion } from '../utils/earningsService';
 import { supabase } from '../utils/supabaseClient';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
 import { Input, Select } from '../components/Input';
+import { SERVICES as LOCAL_SERVICES, getPlanPrice } from '../data/services';
 
 // SUPABASE: Run this SQL first: ALTER TABLE leads ADD COLUMN IF NOT EXISTS note text;
-
-// Available services
-const services = [
-  'Web Development', 'Mobile App', 'UI/UX Design',
-  'SEO & Marketing', 'Branding', 'Social Media', 'Content Writing',
-];
 
 // ============================================================
 // LeadsPage — lead management with Supabase integration
 // ============================================================
 
-const emptyForm = {
-  client_name: '',
+const EMPTY_FORM = {
+  clientName: '',
   phone: '',
-  service: services[0] || '',
-  status: 'pending',
+  email: '',
+  companyName: '',
+  services: [],
+  status: 'New',
   note: '',
-  dealAmount: ''
+  clientEmail: '',
+  companyEmail: '',
+  companyRegNo: '',
+  gstNo: '',
+  dealAmount: '',
+  dealAmountUsd: '',
 };
 
 export default function LeadsPage() {
@@ -37,8 +39,9 @@ export default function LeadsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState({ ...EMPTY_FORM });
   const [search, setSearch] = useState('');
+  const [services, setServices] = useState([]);
   const [filterStatus, setFilterStatus] = useState('All');
   const [submitting, setSubmitting] = useState(false);
   const [showConversionModal, setShowConversionModal] = useState(false);
@@ -53,33 +56,97 @@ export default function LeadsPage() {
   useEffect(() => {
     const fetchLeads = async () => {
       setLoading(true);
-      const { data, error } = await supabase
+      
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
+      const dataPromise = supabase
         .from('leads')
         .select('*')
         .eq('user_id', currentUser.id)
         .order('created_at', { ascending: false });
 
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      // Handle timeout case
+      if (result instanceof Error) {
+        console.error('Leads fetch timed out, using empty state');
+        setLeads([]);
+        setLoading(false);
+        return;
+      }
+      
+      const { data, error } = result;
+
       if (!error && data) {
-        // Map snake_case DB columns to camelCase for existing JSX
-        setLeads(data.map(l => ({
-          ...l,
-          clientName: l.client_name,
-          date: new Date(l.created_at).toLocaleDateString('en-IN'),
+        setLeads(data.map((lead) => ({
+          ...lead,
+          clientName: lead.client_name,
+          status: lead.status === 'pending' ? 'New' : lead.status,
+          services: Array.isArray(lead.services) ? lead.services : (lead.services ? [lead.services] : []),
+          date: new Date(lead.created_at).toLocaleDateString('en-IN'),
         })));
       } else if (error) {
         console.error('Failed to fetch leads:', error);
+        if (error.message === 'Request timeout') {
+          console.warn('Leads fetch timed out, using empty state');
+        }
+        setLeads([]); // Set empty array on error to prevent UI issues
       }
       setLoading(false);
     };
     if (currentUser?.id) fetchLeads();
   }, [currentUser?.id]);
 
+  useEffect(() => {
+    // Prefer local SERVICES for exact pricing and labels
+    if (LOCAL_SERVICES && LOCAL_SERVICES.length > 0) {
+      setServices(LOCAL_SERVICES);
+      return;
+    }
+
+    const fetchServices = async () => {
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
+      const dataPromise = supabase
+        .from('services')
+        .select('id, name, price_inr, price_usd')
+        .order('name');
+
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      // Handle timeout case
+      if (result instanceof Error) {
+        console.error('Services fetch timed out, using local services');
+        return; // Keep using LOCAL_SERVICES as fallback
+      }
+      
+      const { data, error } = result;
+
+      if (!error && data) {
+        setServices(data);
+      } else if (error) {
+        console.error('Failed to fetch services:', error);
+        // Keep using LOCAL_SERVICES as fallback
+      }
+    };
+
+    fetchServices();
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.client_name || !form.phone || !form.service) {
+
+    if (!form.clientName?.trim() || !form.phone?.trim() || form.services.length === 0) {
       setError('Please fill in all required fields');
       return;
     }
+
     if (form.status === 'Converted' && (!form.dealAmount || parseFloat(form.dealAmount) <= 0)) {
       setError('Please enter the deal value for a converted lead');
       return;
@@ -89,12 +156,24 @@ export default function LeadsPage() {
     setError('');
 
     try {
+      const serviceNames = form.services
+        .map((id) => services.find((service) => service.id === id)?.name)
+        .filter(Boolean);
+
       const leadData = {
-        client_name: form.client_name,
-        phone:       form.phone,
-        service:     form.service,
-        status:      form.status,
-        note:        form.note || '',
+        client_name: form.clientName,
+        phone: form.phone,
+        email: form.email || null,
+        company_name: form.companyName || null,
+        services: serviceNames,
+        status: form.status,
+        note: form.note || '',
+        client_email: form.status === 'Converted' ? form.clientEmail || null : null,
+        company_email: form.status === 'Converted' ? form.companyEmail || null : null,
+        company_reg_no: form.status === 'Converted' ? form.companyRegNo || null : null,
+        gst_no: form.status === 'Converted' ? form.gstNo || null : null,
+        deal_amount: form.status === 'Converted' && form.dealAmount ? parseFloat(form.dealAmount) : null,
+        deal_amount_usd: form.status === 'Converted' ? form.dealAmountUsd || null : null,
       };
 
       const { data: newLead, error: insertError } = await supabase
@@ -107,7 +186,6 @@ export default function LeadsPage() {
         throw new Error(insertError.message);
       }
 
-      // If this is a converted lead with deal amount, process earnings
       if (form.status === 'Converted' && form.dealAmount && parseFloat(form.dealAmount) > 0) {
         const { commission, rate, error: earnError } =
           await processLeadConversion(newLead.id, currentUser.id, parseFloat(form.dealAmount));
@@ -116,12 +194,18 @@ export default function LeadsPage() {
           throw new Error(`Failed to process earnings: ${earnError}`);
         }
 
-        setSuccessMessage(`🎉 Lead converted! ₹${commission} commission (${rate}%) added to your earnings.`);
+        setSuccessMessage(`Lead converted! ₹${commission} commission (${rate}%) added to your earnings.`);
         setTimeout(() => setSuccessMessage(''), 5000);
       }
 
-      setLeads(prev => [newLead, ...prev]);
-      setForm(emptyForm);
+      setLeads((prev) => [{
+        ...newLead,
+        clientName: newLead.client_name,
+        services: Array.isArray(newLead.services) ? newLead.services : (newLead.services ? [newLead.services] : []),
+        status: newLead.status === 'pending' ? 'New' : newLead.status,
+        date: new Date(newLead.created_at).toLocaleDateString('en-IN'),
+      }, ...prev]);
+      setForm({ ...EMPTY_FORM });
       setShowModal(false);
     } catch (error) {
       console.error('Error adding lead:', error);
@@ -217,10 +301,9 @@ export default function LeadsPage() {
   };
 
   // Filter leads
-  const filtered = leads.filter(lead => {
-    const matchSearch = 
-      lead.client_name.toLowerCase().includes(search.toLowerCase()) ||
-      (lead.service && lead.service.toLowerCase().includes(search.toLowerCase()));
+  const filtered = leads.filter((lead) => {
+    const searchText = `${lead.clientName || ''} ${Array.isArray(lead.services) ? lead.services.join(' ') : (lead.services || '')}`.toLowerCase();
+    const matchSearch = searchText.includes(search.toLowerCase());
     const matchStatus = filterStatus === 'All' || lead.status === filterStatus;
     return matchSearch && matchStatus;
   });
@@ -228,9 +311,9 @@ export default function LeadsPage() {
   // Count by status
   const statusCounts = {
     All: leads.length,
-    pending: leads.filter(l => l.status === 'pending').length,
-    'follow-up': leads.filter(l => l.status === 'follow-up').length,
-    Converted: leads.filter(l => l.status === 'Converted').length,
+    New: leads.filter((lead) => lead.status === 'New').length,
+    'follow-up': leads.filter((lead) => lead.status === 'follow-up').length,
+    Converted: leads.filter((lead) => lead.status === 'Converted').length,
   };
 
   // Loading state
@@ -334,8 +417,8 @@ export default function LeadsPage() {
                 filtered.map(lead => (
                   <tr key={lead.id} className="hover:bg-dark-600/50 transition-colors">
                     <td className="px-5 py-3.5">
-                      <p className="font-medium text-white">{lead.client_name}</p>
-                      <p className="text-xs text-slate-500 sm:hidden mt-0.5">{lead.phone}</p>
+                      <p className="font-medium text-white">{lead.client_name || lead.clientName || '—'}</p>
+                      <p className="text-xs text-slate-500 sm:hidden mt-0.5">{lead.phone || '—'}</p>
                     </td>
                     <td className="px-5 py-3.5 hidden sm:table-cell">
                       <span className="flex items-center gap-1.5 text-slate-400">
@@ -343,7 +426,11 @@ export default function LeadsPage() {
                         {lead.phone || '—'}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 hidden md:table-cell text-slate-300">{lead.service || '—'}</td>
+                    <td className="px-5 py-3.5 hidden md:table-cell text-slate-300">
+                      {Array.isArray(lead.services) && lead.services.length > 0
+                        ? lead.services.join(', ')
+                        : (lead.service || '—')}
+                    </td>
                     <td className="px-5 py-3.5 hidden lg:table-cell">
                       {lead.note ? (
                         <div className="group relative">
@@ -360,11 +447,11 @@ export default function LeadsPage() {
                     </td>
                     <td className="px-5 py-3.5">
                       <select
-                        value={lead.status}
+                        value={lead.status === 'New' ? 'New' : lead.status}
                         onChange={(e) => handleStatusChange(lead.id, e.target.value)}
                         className="bg-dark-600 border border-dark-400 rounded-lg text-xs px-2 py-1 text-white focus:outline-none focus:border-amber-500/50"
                       >
-                        <option value="pending">Pending</option>
+                        <option value="New">New</option>
                         <option value="follow-up">Follow-up</option>
                         <option value="Converted">Converted</option>
                       </select>
@@ -392,8 +479,8 @@ export default function LeadsPage() {
             label="Client Name *"
             type="text"
             placeholder="TechCorp Solutions"
-            value={form.client_name}
-            onChange={update('client_name')}
+            value={form.clientName}
+            onChange={update('clientName')}
             required
           />
           <Input
@@ -404,30 +491,91 @@ export default function LeadsPage() {
             value={form.phone}
             onChange={update('phone')}
           />
-          <Select label="Service" value={form.service} onChange={update('service')}>
-            {services.map(s => <option key={s} value={s}>{s}</option>)}
-          </Select>
+          <Input
+            label="Company Name"
+            type="text"
+            placeholder="AAKAR Co."
+            value={form.companyName}
+            onChange={update('companyName')}
+          />
+          <Input
+            label="Freelancer Email"
+            type="email"
+            placeholder="you@company.com"
+            value={form.email}
+            onChange={update('email')}
+          />
+          <div className="space-y-2">
+            <label className="block text-xs text-slate-400 font-medium tracking-wide uppercase">
+              Services * (Select one or more)
+            </label>
+            <div className="space-y-2 rounded-xl border border-dark-400 bg-dark-700 p-3">
+              {services.length === 0 ? (
+                <p className="text-sm text-slate-500">No services available yet.</p>
+              ) : (
+                services.map((svc) => {
+                  const checked = form.services.includes(svc.id);
+                  return (
+                    <label key={svc.id} className="flex cursor-pointer items-start gap-2 rounded-lg bg-dark-600/70 px-3 py-2 text-sm text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setForm((f) => ({ ...f, services: [...f.services, svc.id] }));
+                          } else {
+                            setForm((f) => ({ ...f, services: f.services.filter((id) => id !== svc.id) }));
+                          }
+                        }}
+                        className="mt-1 h-4 w-4 rounded border-dark-400 bg-dark-600"
+                      />
+                      <span>
+                        {svc.name} — {svc.plans && svc.plans.length > 0
+                          ? `${getPlanPrice(svc.plans[0], 'INR')} (~${getPlanPrice(svc.plans[0], 'USD')})`
+                          : (svc.priceInr ? `₹${svc.priceInr} (${svc.priceUsd ? `~$${svc.priceUsd}` : ''})` : svc.name)}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+            {form.services.length === 0 && (
+              <p className="text-xs text-amber-400">At least one service is required</p>
+            )}
+          </div>
           <Select label="Status" value={form.status} onChange={update('status')}>
-            <option value="pending">Pending</option>
+            <option value="New">New</option>
             <option value="follow-up">Follow-up</option>
             <option value="Converted">Converted</option>
           </Select>
           {form.status === 'Converted' && (
-            <div className="space-y-1">
-              <label className="block text-xs text-slate-400 font-medium tracking-wide uppercase">
-                Deal Value (₹) *
-              </label>
-              <input
-                type="number"
-                min="1"
-                placeholder="Enter deal value e.g. 15000"
-                value={form.dealAmount || ''}
-                onChange={e => setForm(f => ({ ...f, dealAmount: e.target.value }))}
-                className="w-full bg-dark-600 border border-dark-400 rounded-xl text-sm text-white px-4 py-2.5 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/20 transition-all"
-              />
-              <p className="text-xs text-amber-400/70">
-                Commission will be calculated automatically (10% or 15%)
-              </p>
+            <div className="space-y-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+              <div className="space-y-1">
+                <label className="block text-xs text-slate-400 font-medium tracking-wide uppercase">
+                  Deal Amount (INR) *
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  placeholder="Enter deal value e.g. 15000"
+                  value={form.dealAmount || ''}
+                  onChange={(e) => {
+                    const inrAmount = parseFloat(e.target.value);
+                    setForm((f) => ({
+                      ...f,
+                      dealAmount: e.target.value,
+                      dealAmountUsd: inrAmount ? (inrAmount / 83).toFixed(2) : '',
+                    }));
+                  }}
+                  className="w-full bg-dark-600 border border-dark-400 rounded-xl text-sm text-white px-4 py-2.5 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/20 transition-all"
+                />
+                <p className="text-xs text-amber-400/80">Approx. USD value: ${form.dealAmountUsd || '0'}</p>
+              </div>
+              <Input label="Client Email *" type="email" value={form.clientEmail} onChange={update('clientEmail')} required />
+              <Input label="Company Email *" type="email" value={form.companyEmail} onChange={update('companyEmail')} required />
+              <Input label="Company Registration Number *" value={form.companyRegNo} onChange={update('companyRegNo')} required />
+              <Input label="GST Number" value={form.gstNo} onChange={update('gstNo')} />
             </div>
           )}
           <div>

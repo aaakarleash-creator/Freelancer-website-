@@ -30,7 +30,22 @@ export default function EarningsPage() {
     setError('');
     try {
       console.log('Fetching earnings for user:', currentUser.id);
-      const { data, error: err } = await getUserEarnings(currentUser.id);
+      
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
+      const dataPromise = getUserEarnings(currentUser.id);
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      // Handle timeout case
+      if (result instanceof Error) {
+        console.error('Earnings fetch timed out');
+        throw result; // Will be caught by catch block
+      }
+      
+      const { data, error: err } = result;
       if (err) throw err;
       console.log('Fetched earnings:', data);
       console.log('Earnings breakdown:', data.map(e => ({
@@ -42,7 +57,12 @@ export default function EarningsPage() {
       setEarnings(data);
     } catch (err) {
       console.error('Error fetching earnings:', err);
-      setError(`Failed to load earnings: ${err.message}`);
+      if (err.message === 'Request timeout') {
+        setError('Request timed out. Please check your connection and try again.');
+      } else {
+        setError(`Failed to load earnings: ${err.message}`);
+      }
+      setEarnings([]); // Set empty array on error to prevent UI issues
     }
     setLoading(false);
   };

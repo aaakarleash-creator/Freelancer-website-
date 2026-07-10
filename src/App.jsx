@@ -22,8 +22,8 @@ function AppRouter() {
 
   console.log('🎯 AppRouter render: isLoading=', isLoading, 'isAuth=', isAuthenticated, 'requiresLegal=', requiresLegal);
 
-  // 1. While session is being checked — show spinner
-  if (isLoading) {
+  // 1. While session is being checked — show spinner (only on initial load, not during navigation)
+  if (isLoading && !isAuthenticated) {
     console.log('📡 Showing spinner...');
     return (
       <div style={{

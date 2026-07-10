@@ -28,18 +28,21 @@ export const SERVICES = [
       {
         name: 'Starter Website',
         priceInr: 34999,
+        priceUsd: 2497,
         highlighted: false,
         description: 'Perfect for small businesses and portfolios',
       },
       {
         name: 'Business Website',
         priceInr: 44999,
+        priceUsd: 5997,
         highlighted: true,
         description: 'Feature-rich website with analytics and CRM',
       },
       {
         name: 'E-Commerce Website',
         priceInr: 54999,
+        priceUsd: 12997,
         highlighted: false,
         description: 'Full online store with payment integration',
       },
@@ -61,12 +64,16 @@ export const SERVICES = [
       {
         name: 'Smart Starter',
         priceInr: 18999,
+        priceUsd: 597,
+        priceUsdPeriod: '/month',
         highlighted: false,
         description: 'Basic automation workflows for small teams',
       },
       {
         name: 'Growth Automator',
         priceInr: 39999,
+        priceUsd: 1497,
+        priceUsdPeriod: '/month',
         monthlyInr: 8000,
         highlighted: false,
         description: 'Advanced automation with monthly support',
@@ -74,6 +81,8 @@ export const SERVICES = [
       {
         name: 'AI Command Center',
         priceInr: 74999,
+        priceUsd: 2997,
+        priceUsdPeriod: '/month',
         monthlyInr: 14999,
         highlighted: true,
         description: 'Enterprise-level AI automation platform',
@@ -96,18 +105,21 @@ export const SERVICES = [
       {
         name: 'Basic App',
         priceInr: 29999,
+        priceUsd: 7997,
         highlighted: false,
         description: 'Simple app with core features',
       },
       {
         name: 'Business App',
         priceInr: 59999,
+        priceUsd: 18997,
         highlighted: true,
         description: 'Advanced app with backend and integrations',
       },
       {
         name: 'E-Commerce App',
         priceInr: 89999,
+        priceUsd: 39997,
         highlighted: false,
         description: 'Full-featured marketplace or shopping app',
       },
@@ -129,18 +141,21 @@ export const SERVICES = [
       {
         name: 'Brand Identity Kit',
         priceInr: 6999,
+        priceUsd: 2997,
         highlighted: false,
         description: 'Logo, colors, and brand guidelines',
       },
       {
         name: 'Advanced Identity & Strategy',
         priceInr: 12999,
+        priceUsd: 7497,
         highlighted: false,
         description: 'Complete branding with market strategy',
       },
       {
         name: 'Full Brand Development',
         priceInr: 21999,
+        priceUsd: 14997,
         highlighted: true,
         description: 'Comprehensive branding with all assets',
       },
@@ -162,6 +177,7 @@ export const SERVICES = [
       {
         name: 'Starter Plan',
         priceInr: 11499,
+        priceUsd: 1497,
         type: 'monthly',
         highlighted: false,
         description: 'Basic SEO and limited ad campaigns',
@@ -169,6 +185,7 @@ export const SERVICES = [
       {
         name: 'Growth Plan',
         priceInr: 16499,
+        priceUsd: 2997,
         type: 'monthly',
         highlighted: true,
         description: 'Advanced SEO with multi-channel ads',
@@ -176,6 +193,7 @@ export const SERVICES = [
       {
         name: 'Business Pro',
         priceInr: 24999,
+        priceUsd: 5497,
         type: 'monthly',
         highlighted: false,
         description: 'Premium marketing with dedicated account manager',
@@ -198,18 +216,21 @@ export const SERVICES = [
       {
         name: 'Starter Collab',
         priceInr: 14999,
+        priceUsd: 997,
         highlighted: false,
         description: 'Micro-influencer collaboration',
       },
       {
         name: 'Growth Collab',
         priceInr: 29999,
+        priceUsd: 2497,
         highlighted: false,
         description: 'Multiple influencers with content creation',
       },
       {
         name: 'Brand Scale Pack',
         priceInr: 44999,
+        priceUsd: 5997,
         highlighted: true,
         description: 'Comprehensive influencer campaign',
       },
@@ -231,18 +252,21 @@ export const SERVICES = [
       {
         name: 'Lead Booster',
         priceInr: 11999,
+        priceUsd: 797,
         highlighted: false,
         description: 'Lead generation and qualification',
       },
       {
         name: 'Conversion Master',
         priceInr: 19999,
+        priceUsd: 1497,
         highlighted: true,
         description: 'Complete conversion funnel optimization',
       },
       {
         name: 'Revenue Accelerator',
         priceInr: 17999,
+        priceUsd: 2997,
         highlighted: false,
         description: 'Advanced revenue optimization strategies',
       },
@@ -264,6 +288,7 @@ export const SERVICES = [
       {
         name: 'Basic Plan',
         priceInr: 7999,
+        priceUsd: 997,
         type: 'monthly',
         highlighted: false,
         description: 'Content posting and basic engagement',
@@ -271,6 +296,7 @@ export const SERVICES = [
       {
         name: 'Standard Plan',
         priceInr: 14999,
+        priceUsd: 1997,
         type: 'monthly',
         highlighted: true,
         description: 'Content creation with growth strategy',
@@ -278,6 +304,7 @@ export const SERVICES = [
       {
         name: 'Premium Plan',
         priceInr: 22999,
+        priceUsd: 3497,
         type: 'monthly',
         highlighted: false,
         description: 'Full management with video content',
@@ -303,4 +330,26 @@ export const formatPrice = (price, currency = 'INR') => {
   const symbol = currency === 'USD' ? '$' : '₹';
   const amount = currency === 'USD' ? convertToUSD(price) : price;
   return `${symbol}${amount.toLocaleString()}`;
+};
+
+export const formatRawUsdPrice = (priceUsd) => {
+  if (typeof priceUsd === 'string') return priceUsd;
+  return `$${priceUsd.toLocaleString()}`;
+};
+
+export const getPlanPrice = (plan, currency = 'INR') => {
+  if (currency === 'USD' && plan.priceUsd != null) {
+    const formatted = formatRawUsdPrice(plan.priceUsd);
+    return plan.priceUsdPeriod ? `${formatted}${plan.priceUsdPeriod}` : formatted;
+  }
+  return formatPrice(plan.priceInr, currency);
+};
+
+export const getPlanMonthlyPrice = (plan, currency = 'INR') => {
+  if (plan.monthlyInr == null) return null;
+  if (currency === 'USD') {
+    if (plan.monthlyUsd != null) return formatRawUsdPrice(plan.monthlyUsd);
+    if (plan.priceUsd != null) return null;
+  }
+  return formatPrice(plan.monthlyInr, currency);
 };

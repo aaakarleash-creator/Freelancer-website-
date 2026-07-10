@@ -23,7 +23,7 @@ export default function Modal({ isOpen, onClose, title, children }) {
         onClick={onClose}
       />
       {/* Panel */}
-      <div className="relative z-10 w-full max-w-lg mx-4 bg-dark-700 border border-dark-400 rounded-2xl shadow-card animate-fade-in">
+      <div className="relative z-10 w-full max-w-3xl mx-4 bg-dark-700 border border-dark-400 rounded-2xl shadow-card animate-fade-in max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-dark-500">
           <h2 className="font-display text-lg font-semibold text-amber-400">{title}</h2>
@@ -35,7 +35,7 @@ export default function Modal({ isOpen, onClose, title, children }) {
           </button>
         </div>
         {/* Body */}
-        <div className="px-6 py-5">
+        <div className="px-6 py-5 overflow-y-auto" style={{ maxHeight: '72vh' }}>
           {children}
         </div>
       </div>

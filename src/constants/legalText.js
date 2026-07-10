@@ -137,7 +137,13 @@ The Freelancer acknowledges that by accepting this Agreement and using the Platf
 
 The Freelancer retains complete autonomy in determining how, when, and where services are delivered, provided they meet client requirements and Platform standards. The Freelancer is responsible for all expenses related to service delivery, including equipment, software, and internet connectivity.
 
-3. COMMISSION AND FEE STRUCTURE
+3. COMMISSION AND PAYMENT
+The Freelancer will earn a commission based on converted leads:
+- Base Commission Rate: 10% of deal amount
+- Premium Commission Rate: 15% (when Freelancer completes 10+ services in any month)
+All commission rates are deducted from the freelancer's earnings before payment.
+
+4. COMMISSION AND FEE STRUCTURE
 The Platform charges a commission on all earnings generated through service engagements. The commission structure is as follows:
 
 Base Commission: 10% of gross earnings on all completed projects
@@ -146,7 +152,10 @@ Payout Processing Fee: Additional service fees may apply for certain payment met
 
 All commission rates are deducted from earnings before payment to the Freelancer. The Freelancer acknowledges that these rates are subject to modification with 30 days' written notice.
 
-4. PAYMENT TERMS AND CONDITIONS
+5. EMPLOYMENT CLASSIFICATION
+The Freelancer is an independent contractor and may be engaged as a performance-based employee of AAKAR Co. This arrangement is performance-based and earnings are not guaranteed.
+
+6. PAYMENT TERMS AND CONDITIONS
 Payments are processed through the Platform's payment system to the Freelancer's verified bank account. Standard payment terms are as follows:
 
 Payment Cycle: Earnings are accumulated and paid out monthly on the specified payout date
@@ -156,7 +165,7 @@ Processing Time: Payments are processed within 3-5 business days after the payou
 
 The Freelancer is responsible for maintaining accurate and current banking information. The Platform is not liable for delays or failures resulting from incorrect account details provided by the Freelancer.
 
-5. SERVICE QUALITY AND STANDARDS
+7. SERVICE QUALITY AND STANDARDS
 The Freelancer commits to delivering services of professional quality that meet client specifications and industry standards. Failure to meet quality standards may result in negative reviews, reduced earnings, or account suspension.
 
 The Freelancer agrees to:
@@ -166,38 +175,39 @@ The Freelancer agrees to:
 - Comply with all client requirements as specified in project agreements
 - Maintain confidentiality of client information and project details
 
-6. CONFIDENTIALITY AND NON-DISCLOSURE
+8. CONFIDENTIALITY AND NON-DISCLOSURE
 The Freelancer agrees to maintain strict confidentiality regarding all client information, project details, and proprietary information accessed through the Platform. This obligation extends indefinitely, even after completion of projects or termination of this Agreement.
 
 The Freelancer shall not disclose client identities, contact information, or project specifications to third parties or utilize such information for personal benefit.
 
 Unauthorized disclosure may result in legal action, damages claims, and account termination.
 
-7. NON-SOLICITATION CLAUSE
+9. NON-SOLICITATION CLAUSE
 The Freelancer agrees not to directly solicit or engage with clients outside the Platform to circumvent commission payments or avoid Platform oversight. Direct client solicitation discovered through Platform communications or evidence is prohibited.
 
 Violation of this clause may result in account suspension, forfeiture of unpaid earnings, and legal action for damages. This restriction applies for 12 months following the conclusion of any client engagement through the Platform.
 
-8. INTELLECTUAL PROPERTY
+10. INTELLECTUAL PROPERTY
 All work product created by the Freelancer for clients through Platform engagements becomes the exclusive property of the client upon payment. The Freelancer retains no rights to the final deliverable unless explicitly agreed otherwise in writing.
 
 The Platform retains the right to display completed projects as portfolio examples, with client consent and appropriate anonymization when necessary.
 
-9. TAXES AND REGULATORY COMPLIANCE
+11. TAXES AND REGULATORY COMPLIANCE
 The Freelancer is solely responsible for understanding and complying with all applicable tax obligations, including but not limited to income tax, GST, and other statutory requirements in their jurisdiction.
 
 The Freelancer must maintain proper records of earnings, expenses, and tax documentation. The Platform provides basic earnings reports but does not provide tax advice or prepare tax filings.
 
-10. DISPUTE RESOLUTION
-Any disputes between the Freelancer and the Platform shall be governed by the laws of India. Both parties agree to first attempt resolution through informal negotiation with Platform support.
+12. DISPUTE RESOLUTION
+This agreement shall be governed by the laws of India. Any disputes arising under this agreement shall be subject to the jurisdiction of the courts in West Bengal and Asansol.
 
-If negotiation fails, disputes shall be subject to binding arbitration in accordance with Indian arbitration law, with arbitration proceedings conducted in India.
+13. DIGITAL AGREEMENT
+Upon signing this agreement digitally, a certified copy shall be provided to both the Freelancer and AAKAR Co for record purposes.
 
-11. TERMINATION AND SEVERABILITY
+14. TERMINATION AND SEVERABILITY
 This Agreement may be terminated by either party with 30 days' written notice. Upon termination, all rights and obligations cease, except those that expressly survive termination, such as confidentiality obligations.
 
 If any provision of this Agreement is found invalid or unenforceable, such provision shall be severable and shall not affect the validity of remaining provisions.
 
-12. GOVERNING LAW
+15. GOVERNING LAW
 This Agreement is governed by and construed in accordance with the laws of India, without regard to conflict of law principles. The parties consent to the exclusive jurisdiction of Indian courts.`,
 };

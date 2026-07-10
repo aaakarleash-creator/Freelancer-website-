@@ -23,23 +23,59 @@ export default function DashboardPage({ onNavigate }) {
   const fetchDashboardData = useCallback(async () => {
     setLoading(true);
     try {
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
       // Fetch user's leads
-      const { leads: leadsData, error: leadsError } = await getUserLeads(currentUser.id);
+      const leadsPromise = getUserLeads(currentUser.id);
+      const leadsResult = await Promise.race([leadsPromise, timeoutPromise]);
+      
+      if (leadsResult instanceof Error) {
+        console.error('Leads fetch timed out');
+        throw leadsResult;
+      }
+      
+      const { leads: leadsData, error: leadsError } = leadsResult;
       if (leadsError) throw leadsError;
       setLeads(leadsData || []);
 
       // Fetch leaderboard
-      const { leaderboard: leaderboardData, error: leaderboardError } = await getLeaderboard();
+      const leaderboardPromise = getLeaderboard();
+      const leaderboardResult = await Promise.race([leaderboardPromise, timeoutPromise]);
+      
+      if (leaderboardResult instanceof Error) {
+        console.error('Leaderboard fetch timed out');
+        throw leaderboardResult;
+      }
+      
+      const { leaderboard: leaderboardData, error: leaderboardError } = leaderboardResult;
       if (leaderboardError) throw leaderboardError;
       setLeaderboard(leaderboardData || []);
 
       // Fetch total earnings for current user
-      const { data: earningsData, error: earningsError } = await getUserEarnings(currentUser.id);
+      const earningsPromise = getUserEarnings(currentUser.id);
+      const earningsResult = await Promise.race([earningsPromise, timeoutPromise]);
+      
+      if (earningsResult instanceof Error) {
+        console.error('Earnings fetch timed out');
+        throw earningsResult;
+      }
+      
+      const { data: earningsData, error: earningsError } = earningsResult;
       if (earningsError) throw earningsError;
       const total = (earningsData || []).reduce((sum, e) => sum + (parseFloat(e.commission) || 0), 0);
       setTotalEarnings(total || 0);
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
+      if (err.message === 'Request timeout') {
+        console.warn('Dashboard data fetch timed out, using empty state');
+      }
+      // Set empty state on error to prevent UI issues
+      setLeads([]);
+      setLeaderboard([]);
+      setTotalEarnings(0);
     }
     setLoading(false);
   }, [currentUser.id]);
@@ -55,15 +91,33 @@ export default function DashboardPage({ onNavigate }) {
   useEffect(() => {
     const fetchAnnouncements = async () => {
       try {
-        const { data, error } = await supabase
+        // Add timeout to prevent infinite loading
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Request timeout')), 10000)
+        );
+        
+        const dataPromise = supabase
           .from('announcements')
           .select('id, title, message, type')
           .eq('is_active', true)
           .order('created_at', { ascending: false })
           .limit(3);
+        
+        const result = await Promise.race([dataPromise, timeoutPromise]);
+        
+        // Handle timeout case
+        if (result instanceof Error) {
+          console.error('Announcements fetch timed out, using empty state');
+          setAnnouncements([]);
+          return;
+        }
+        
+        const { data, error } = result;
+        
         if (!error) setAnnouncements(data || []);
       } catch (e) {
-        // Table may not exist yet — fail silently
+        // Table may not exist yet or timeout — fail silently
+        console.error('Announcements fetch error:', e);
         setAnnouncements([]);
       }
     };

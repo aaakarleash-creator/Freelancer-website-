@@ -67,11 +67,28 @@ export default function ProfilePage() {
     setBankLoading(true);
     setBankError(null);
     try {
-      const { data, error } = await supabase
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
+      const dataPromise = supabase
         .from('bank_details')
         .select('*')
         .eq('user_id', currentUser.id)
         .maybeSingle();
+      
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      // Handle timeout case
+      if (result instanceof Error) {
+        console.error('Bank details fetch timed out');
+        setBankError('Request timed out. Please check your connection.');
+        setBankLoading(false);
+        return;
+      }
+      
+      const { data, error } = result;
 
       if (error) {
         setBankError(error.message);
@@ -169,11 +186,28 @@ export default function ProfilePage() {
   const fetchAgreements = async () => {
     setAgreementsLoading(true);
     try {
-      const { data, error } = await supabase
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
+      const dataPromise = supabase
         .from('agreements')
         .select('*')
         .eq('user_id', currentUser.id)
         .order('created_at', { ascending: false });
+      
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      // Handle timeout case
+      if (result instanceof Error) {
+        console.error('Agreements fetch timed out, using empty state');
+        setAgreements([]);
+        setAgreementsLoading(false);
+        return;
+      }
+      
+      const { data, error } = result;
 
       if (error) {
         console.error('Error fetching agreements:', error);
@@ -182,6 +216,7 @@ export default function ProfilePage() {
       }
     } catch (err) {
       console.error('Error fetching agreements:', err);
+      setAgreements([]);
     }
     setAgreementsLoading(false);
   };
