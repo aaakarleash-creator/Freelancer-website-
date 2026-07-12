@@ -86,7 +86,13 @@ export default function LegalAcceptanceFlow({ onComplete }) {
 
     try {
       console.log('🔄 Updating user profile with legal acceptance data...');
-      const { error: updateError } = await supabase
+      
+      // Add timeout protection
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 15000)
+      );
+      
+      const updatePromise = supabase
         .from('users')
         .update({
           accepted_terms_at:        new Date().toISOString(),
@@ -99,6 +105,8 @@ export default function LegalAcceptanceFlow({ onComplete }) {
         })
         .eq('id', currentUser.id);
 
+      const { error: updateError } = await Promise.race([updatePromise, timeoutPromise]);
+
       if (updateError) {
         console.error('❌ User update error:', updateError);
         throw updateError;
@@ -107,7 +115,8 @@ export default function LegalAcceptanceFlow({ onComplete }) {
       console.log('✅ User profile updated successfully');
 
       console.log('🔄 Inserting agreement record...');
-      const { error: insertError } = await supabase
+      
+      const insertPromise = supabase
         .from('agreements')
         .insert([{
           user_id:           currentUser.id,
@@ -123,12 +132,15 @@ export default function LegalAcceptanceFlow({ onComplete }) {
           created_at:        new Date().toISOString(),
         }]);
 
+      const { error: insertError } = await Promise.race([insertPromise, timeoutPromise]);
+
       if (insertError) {
         console.error('❌ Agreement insert error:', insertError);
-        throw insertError;
+        // If agreements table doesn't exist, we still want to proceed with user update
+        console.warn('⚠️ Agreement insert failed, but continuing with user update');
       }
 
-      console.log('✅ Agreement record inserted successfully');
+      console.log('✅ Agreement record inserted successfully (or skipped)');
 
       // Manually update the auth state to redirect to dashboard
       console.log('🔄 Manually updating auth state...');

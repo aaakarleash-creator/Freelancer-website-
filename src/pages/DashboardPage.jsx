@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, CheckCircle2, DollarSign, ArrowRight, X } from 'lucide-react';
+import { Users, CheckCircle2, DollarSign, ArrowRight, X, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../utils/supabaseClient';
+import { getAnnouncements } from '../utils/supabaseQueryHelper';
 import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
 import { getUserLeads } from '../utils/leadService';
@@ -19,6 +20,7 @@ export default function DashboardPage({ onNavigate }) {
   const [totalEarnings, setTotalEarnings] = useState(0);
   const [loading, setLoading] = useState(true);
   const [announcements, setAnnouncements] = useState([]);
+  const [pendingVerifications, setPendingVerifications] = useState(0);
 
   const fetchDashboardData = useCallback(async () => {
     setLoading(true);
@@ -91,30 +93,13 @@ export default function DashboardPage({ onNavigate }) {
   useEffect(() => {
     const fetchAnnouncements = async () => {
       try {
-        // Add timeout to prevent infinite loading
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Request timeout')), 10000)
-        );
-        
-        const dataPromise = supabase
-          .from('announcements')
-          .select('id, title, message, type')
-          .eq('is_active', true)
-          .order('created_at', { ascending: false })
-          .limit(3);
-        
-        const result = await Promise.race([dataPromise, timeoutPromise]);
-        
-        // Handle timeout case
-        if (result instanceof Error) {
-          console.error('Announcements fetch timed out, using empty state');
+        const { data, error } = await getAnnouncements();
+        if (error) {
+          console.error('Announcements fetch error:', error);
           setAnnouncements([]);
           return;
         }
-        
-        const { data, error } = result;
-        
-        if (!error) setAnnouncements(data || []);
+        setAnnouncements(data || []);
       } catch (e) {
         // Table may not exist yet or timeout — fail silently
         console.error('Announcements fetch error:', e);
@@ -123,6 +108,38 @@ export default function DashboardPage({ onNavigate }) {
     };
     fetchAnnouncements();
   }, []);
+
+  // Fetch pending verifications for admin
+  useEffect(() => {
+    if (currentUser?.role === 'admin') {
+      const fetchPendingVerifications = async () => {
+        try {
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Request timeout')), 10000)
+          );
+          
+          const dataPromise = supabase
+            .from('leads')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'Converted')
+            .is('is_verified_by_admin', false);
+          
+          const result = await Promise.race([dataPromise, timeoutPromise]);
+          
+          if (result instanceof Error) {
+            console.error('Pending verifications fetch timed out');
+            return;
+          }
+          
+          const { count, error } = result;
+          if (!error) setPendingVerifications(count || 0);
+        } catch (e) {
+          console.error('Pending verifications fetch error:', e);
+        }
+      };
+      fetchPendingVerifications();
+    }
+  }, [currentUser?.role]);
 
   const totalLeads = leads.length;
   const converted = leads.filter(l => l.status === 'converted').length;
@@ -136,12 +153,14 @@ export default function DashboardPage({ onNavigate }) {
     const dismissed = JSON.parse(sessionStorage.getItem('dismissedAnnouncements') || '[]');
     dismissed.push(id);
     sessionStorage.setItem('dismissedAnnouncements', JSON.stringify(dismissed));
-    setAnnouncements(prev => prev.filter(a => a.id !== id));
+    setAnnouncements(prev => Array.isArray(prev) ? prev.filter(a => a.id !== id) : []);
   };
 
   // Filter out dismissed announcements
   const dismissed = JSON.parse(sessionStorage.getItem('dismissedAnnouncements') || '[]');
-  const visibleAnnouncements = announcements.filter(a => !dismissed.includes(a.id));
+  const visibleAnnouncements = Array.isArray(announcements)
+    ? announcements.filter(a => !dismissed.includes(a.id))
+    : [];
 
   const typeStyles = {
     info: 'border-blue-500/30 bg-blue-500/8 text-blue-300',
@@ -201,6 +220,22 @@ export default function DashboardPage({ onNavigate }) {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Admin Verification Banner */}
+      {currentUser?.role === 'admin' && pendingVerifications > 0 && (
+        <div className="flex items-center gap-3 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
+          <AlertCircle size={16} className="text-amber-400 flex-shrink-0" />
+          <p className="flex-1 text-sm text-amber-300">
+            Conversions Awaiting Verification: {pendingVerifications}
+          </p>
+          <button
+            onClick={() => onNavigate('admin_lead_verifications')}
+            className="text-xs bg-amber-500 hover:bg-amber-600 text-dark-900 px-3 py-1.5 rounded-lg font-medium transition-colors"
+          >
+            Review Now
+          </button>
         </div>
       )}
 

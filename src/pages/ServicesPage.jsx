@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { supabase } from '../utils/supabaseClient';
+import { getServices } from '../utils/supabaseQueryHelper';
 import { SERVICES as LOCAL_SERVICES } from '../data/services';
 
 // Helper functions outside component
@@ -60,29 +60,11 @@ export default function ServicesPage() {
     const fetchServices = async () => {
       try {
         setLoading(true);
-        
-        // Add timeout to prevent infinite loading
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Request timeout')), 10000)
-        );
-        
-        const dataPromise = supabase
-          .from('services')
-          .select('*')
-          .order('category');
-        
-        const result = await Promise.race([dataPromise, timeoutPromise]);
-        
-        // Handle timeout case
-        if (result instanceof Error) {
-          console.error('Services fetch timed out, using local services');
-          throw result; // Will be caught by catch block
-        }
-        
-        const { data, error } = result;
-        
-        if (error) throw error;
-        
+
+        const { data, error } = await getServices();
+
+        if (error) throw new Error(error);
+
         if (data && data.length > 0) {
           setServices(data);
         } else {

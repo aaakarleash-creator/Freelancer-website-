@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { DollarSign, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getUserEarnings, requestPayout } from '../utils/earningsService';
+import { requestPayout } from '../utils/earningsService';
+import { getEarnings } from '../utils/supabaseQueryHelper';
+import { getLeadVerification } from '../utils/leadVerificationService';
+import { supabase } from '../utils/supabaseClient';
 import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
 
@@ -10,8 +13,10 @@ export default function EarningsPage() {
   const [earnings, setEarnings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [retryCount, setRetryCount] = useState(0);
   const [successMessage, setSuccessMessage] = useState('');
   const [requestingPayout, setRequestingPayout] = useState(false);
+  const [pendingVerifications, setPendingVerifications] = useState(0);
 
   // Calculate totals
   const totalEarnings = earnings.reduce((sum, e) => sum + (parseFloat(e.commission) || 0), 0);
@@ -32,20 +37,7 @@ export default function EarningsPage() {
       console.log('Fetching earnings for user:', currentUser.id);
       
       // Add timeout to prevent infinite loading
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout')), 10000)
-      );
-      
-      const dataPromise = getUserEarnings(currentUser.id);
-      const result = await Promise.race([dataPromise, timeoutPromise]);
-      
-      // Handle timeout case
-      if (result instanceof Error) {
-        console.error('Earnings fetch timed out');
-        throw result; // Will be caught by catch block
-      }
-      
-      const { data, error: err } = result;
+      const { data, error: err } = await getEarnings(currentUser.id);
       if (err) throw err;
       console.log('Fetched earnings:', data);
       console.log('Earnings breakdown:', data.map(e => ({
@@ -55,6 +47,25 @@ export default function EarningsPage() {
         status_type: typeof e.payout_status
       })));
       setEarnings(data);
+
+      // Check for pending verifications from converted leads
+      const { data: leadsData } = await supabase
+        .from('leads')
+        .select('id')
+        .eq('user_id', currentUser.id)
+        .eq('status', 'Converted');
+
+      if (leadsData && leadsData.length > 0) {
+        // Check each converted lead for pending verification
+        let pendingCount = 0;
+        for (const lead of leadsData) {
+          const { data: verification } = await getLeadVerification(lead.id);
+          if (verification && verification.status === 'pending') {
+            pendingCount++;
+          }
+        }
+        setPendingVerifications(pendingCount);
+      }
     } catch (err) {
       console.error('Error fetching earnings:', err);
       if (err.message === 'Request timeout') {
@@ -67,13 +78,25 @@ export default function EarningsPage() {
     setLoading(false);
   };
 
-  // Fetch earnings on mount
+  // Fetch earnings on mount and set up auto-refresh
   useEffect(() => {
     if (currentUser?.id) {
       fetchEarnings();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.id]);
+  }, [currentUser?.id, retryCount]);
+
+  // Auto-refresh every 5 seconds to catch admin finalizations
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (currentUser?.id && !loading) {
+        fetchEarnings();
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, loading]);
 
   const handleRequestPayout = async () => {
     if (pendingPayout < 500) {
@@ -177,6 +200,9 @@ export default function EarningsPage() {
         <div className="flex gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-400 text-sm font-medium">
           <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
           {error}
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => setRetryCount(c => c + 1)} className="text-sm bg-dark-600 border border-dark-400 px-3 py-1 rounded">Retry</button>
+          </div>
         </div>
       )}
 
@@ -217,8 +243,16 @@ export default function EarningsPage() {
 
       {/* Commission info banner */}
       <div className="bg-dark-800 border border-dark-500 rounded-2xl p-4 text-sm text-slate-400">
-        You earn 10% commission per conversion. Reach 10+ conversions to unlock 15% premium rate.
+        Current commission rate: <strong className="text-amber-400">{earnings.length >= 10 ? '15%' : '10%'}</strong> per conversion.
+        {earnings.length < 10 && ` Convert ${10 - earnings.length} more lead${10 - earnings.length > 1 ? 's' : ''} to unlock 15% premium rate.`}
       </div>
+
+      {/* Verification note banner */}
+      {pendingVerifications > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-sm text-amber-300">
+          <strong>{pendingVerifications} converted lead{pendingVerifications > 1 ? 's are' : ' is'} awaiting admin verification.</strong> Earnings will appear after approval.
+        </div>
+      )}
 
       {/* Transactions table */}
       <div className="bg-dark-800 border border-dark-500 rounded-2xl overflow-hidden">
@@ -241,8 +275,13 @@ export default function EarningsPage() {
               {earnings.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="text-center py-12">
-                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-6 max-w-md mx-auto">
-                      <p className="text-slate-400 text-sm">No earnings yet. Convert your first lead to start earning! 🎉</p>
+                    <div className={`rounded-2xl p-6 max-w-md mx-auto ${pendingVerifications > 0 ? 'bg-amber-500/10 border border-amber-500/30' : 'bg-dark-700 border border-dark-600'}`}>
+                      <p className="text-slate-400 text-sm">
+                        {pendingVerifications > 0 
+                          ? `Awaiting admin verification for ${pendingVerifications} converted lead${pendingVerifications > 1 ? 's' : ''}. Earnings will appear after approval.`
+                          : 'No earnings yet. Convert your first lead to start earning! 🎉'
+                        }
+                      </p>
                     </div>
                   </td>
                 </tr>

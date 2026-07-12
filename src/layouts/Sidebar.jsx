@@ -27,6 +27,7 @@ const ADMIN_SUB_NAV = [
   { id: 'admin_freelancers',   label: 'Freelancers',    icon: Users           },
   { id: 'admin_payouts',       label: 'Payouts',        icon: DollarSign      },
   { id: 'admin_leads',         label: 'Lead Oversight', icon: Target          },
+  { id: 'admin_lead_verifications', label: 'Lead Verifications', icon: ShieldCheck },
   { id: 'admin_announcements', label: 'Announcements',  icon: Megaphone       },
   { id: 'admin_audit',         label: 'Audit Log',      icon: ClipboardList   },
 ];

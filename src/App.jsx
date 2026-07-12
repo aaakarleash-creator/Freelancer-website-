@@ -61,7 +61,7 @@ function AppRouter() {
   }
 
   // 4. Logged in + legal done — show dashboard
-  const adminPages = ['admin', 'admin_freelancers', 'admin_payouts', 'admin_leads', 'admin_announcements', 'admin_audit'];
+  const adminPages = ['admin', 'admin_freelancers', 'admin_payouts', 'admin_leads', 'admin_lead_verifications', 'admin_announcements', 'admin_audit'];
   const safePage = adminPages.includes(activePage) && !isAdmin ? 'dashboard' : activePage;
   console.log('🏠 Showing dashboard...');
 
@@ -75,12 +75,13 @@ function AppRouter() {
       case 'profile':              return <ProfilePage         onNavigate={setActivePage} />;
       case 'terms':                return <TermsConditionsPage onNavigate={setActivePage} />;
       case 'privacy':              return <PrivacyPolicyPage   onNavigate={setActivePage} />;
-      case 'admin':                return <AdminPage           initialTab="overview"       onNavigate={setActivePage} />;
-      case 'admin_freelancers':    return <AdminPage           initialTab="freelancers"    onNavigate={setActivePage} />;
-      case 'admin_payouts':        return <AdminPage           initialTab="payouts"        onNavigate={setActivePage} />;
-      case 'admin_leads':          return <AdminPage           initialTab="leads"          onNavigate={setActivePage} />;
-      case 'admin_announcements':  return <AdminPage           initialTab="announcements"  onNavigate={setActivePage} />;
-      case 'admin_audit':          return <AdminPage           initialTab="audit"          onNavigate={setActivePage} />;
+      case 'admin':                return <AdminPage           initialTab="overview"               onNavigate={setActivePage} />;
+      case 'admin_freelancers':    return <AdminPage           initialTab="freelancers"            onNavigate={setActivePage} />;
+      case 'admin_payouts':        return <AdminPage           initialTab="payouts"                onNavigate={setActivePage} />;
+      case 'admin_leads':          return <AdminPage           initialTab="leads"                  onNavigate={setActivePage} />;
+      case 'admin_lead_verifications': return <AdminPage       initialTab="lead_verifications"     onNavigate={setActivePage} />;
+      case 'admin_announcements':  return <AdminPage           initialTab="announcements"          onNavigate={setActivePage} />;
+      case 'admin_audit':          return <AdminPage           initialTab="audit"                  onNavigate={setActivePage} />;
       default:                     return <DashboardPage       onNavigate={setActivePage} />;
     }
   };

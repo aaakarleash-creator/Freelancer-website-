@@ -2,13 +2,16 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RotateCcw, X, Check, X as X2, Calendar, FileText, CreditCard, User, DollarSign, TrendingUp, Users as UsersIcon, AlertCircle, MessageSquare, Download, Target, Megaphone, ClipboardList } from 'lucide-react';
 import { supabase } from '../utils/supabaseClient';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import Button from '../components/Button';
 import StatusBadge from '../components/StatusBadge';
 import StatCard from '../components/StatCard';
-import { markEarningsPaid } from '../utils/earningsService';
+import { markEarningsPaid, reflectEarningsAfterVerification } from '../utils/earningsService';
+import { verifyLeadByAdmin, finalizeLeadVerification, rejectLeadVerification } from '../utils/leadVerificationService';
 
 export default function AdminPage({ onNavigate, initialTab = 'overview' }) {
-  const { isAdmin } = useAuth();
+  const { isAdmin, currentUser } = useAuth();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState(initialTab);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -38,6 +41,7 @@ export default function AdminPage({ onNavigate, initialTab = 'overview' }) {
     { id: 'freelancers', label: 'Freelancers' },
     { id: 'payouts', label: 'Payouts' },
     { id: 'leads', label: 'Leads' },
+    { id: 'lead_verifications', label: 'Lead Verifications' },
     { id: 'announcements', label: 'Announcements' },
     { id: 'audit', label: 'Audit Log' },
   ];
@@ -110,6 +114,7 @@ export default function AdminPage({ onNavigate, initialTab = 'overview' }) {
       )}
       {activeTab === 'payouts' && <PayoutsTab />}
       {activeTab === 'leads' && <LeadsTab />}
+      {activeTab === 'lead_verifications' && <LeadVerificationsTab showToast={showToast} currentUser={currentUser} />}
       {activeTab === 'announcements' && <AnnouncementsTab />}
       {activeTab === 'audit' && <AuditLogTab />}
     </div>
@@ -2344,6 +2349,628 @@ CREATE POLICY "Auth users insert audit logs" ON public.audit_logs FOR INSERT
           >
             Load More
           </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// LEAD VERIFICATIONS TAB
+// ============================================================================
+function LeadVerificationsTab({ showToast, currentUser }) {
+  const [loading, setLoading] = useState(true);
+  const [leads, setLeads] = useState([]);
+  const [verifications, setVerifications] = useState([]);
+  const [activeSubTab, setActiveSubTab] = useState('pending');
+  const [selectedLead, setSelectedLead] = useState(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [verificationNotes, setVerificationNotes] = useState('');
+  const [processing, setProcessing] = useState(false);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 15000)
+      );
+      
+      // Fetch all converted leads
+      const dataPromise = supabase
+        .from('leads')
+        .select('*, users!leads_user_id_fkey(name, email)')
+        .eq('status', 'Converted')
+        .order('created_at', { ascending: false });
+      
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      if (result instanceof Error) {
+        console.error('Lead verifications fetch timed out');
+        throw result;
+      }
+      
+      const { data, error } = result;
+      if (error) throw error;
+      
+      console.log('📊 Fetched converted leads:', data?.length || 0, 'leads');
+      console.log('Converted leads data:', data);
+      setLeads(data || []);
+      
+      // Fetch all verifications
+      const { data: verData, error: verError } = await supabase
+        .from('lead_verifications')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (!verError) {
+        console.log('📊 Fetched verifications:', verData?.length || 0, 'verifications');
+        console.log('Verifications data:', verData);
+        setVerifications(verData || []);
+      } else {
+        console.error('❌ Error fetching verifications:', verError);
+        console.warn('⚠️ lead_verifications table may not exist. Falling back to showing all converted leads.');
+        setVerifications([]);
+      }
+    } catch (error) {
+      console.error('Error fetching lead verifications:', error);
+      setLeads([]);
+      setVerifications([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const handleReviewLead = async (lead) => {
+    setSelectedLead(lead);
+    setVerificationNotes('');
+    
+    // Check if verification record exists, if not create one
+    const existingVerification = verifications.find(v => v.lead_id === lead.id);
+    
+    if (!existingVerification) {
+      console.log('⚠️ No verification record found for lead, creating one now...');
+      try {
+        const { data: newVerification, error: createError } = await supabase
+          .from('lead_verifications')
+          .insert({
+            lead_id: lead.id,
+            user_id: lead.user_id,
+            status: 'pending',
+            report_data: {
+              dealAmount: lead.deal_amount,
+              usdAmount: lead.deal_amount_usd,
+              timestamp: new Date().toISOString(),
+              client_name: lead.client_name,
+              company_name: lead.company_name,
+            },
+            created_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+        
+        if (createError) {
+          console.error('❌ Failed to create verification record:', createError);
+          // Continue anyway - admin can still review the lead
+        } else {
+          console.log('✅ Created verification record:', newVerification);
+          // Refresh verifications to include the new one
+          setVerifications(prev => [...prev, newVerification]);
+        }
+      } catch (e) {
+        console.error('❌ Error creating verification record:', e);
+        // Continue anyway - admin can still review the lead
+      }
+    }
+    
+    setShowReviewModal(true);
+  };
+
+  const handleApproveVerification = async () => {
+    if (!selectedLead) return;
+    
+    setProcessing(true);
+    try {
+      let verification = verifications.find(v => v.lead_id === selectedLead.id);
+      
+      // If verification doesn't exist, create it first
+      if (!verification) {
+        console.log('⚠️ Creating verification record before approval...');
+        const { data: newVerification, error: createError } = await supabase
+          .from('lead_verifications')
+          .insert({
+            lead_id: selectedLead.id,
+            user_id: selectedLead.user_id,
+            status: 'pending',
+            report_data: {
+              dealAmount: selectedLead.deal_amount,
+              usdAmount: selectedLead.deal_amount_usd,
+              timestamp: new Date().toISOString(),
+            },
+            created_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+        
+        if (createError) {
+          throw new Error('Failed to create verification record: ' + createError.message);
+        }
+        
+        verification = newVerification;
+        setVerifications(prev => [...prev, verification]);
+      }
+
+      const { error } = await verifyLeadByAdmin(verification.id, currentUser.id, verificationNotes);
+      if (error) throw error;
+
+      showToast('✓ Verification approved. Awaiting final admin approval.', 'success');
+      setShowReviewModal(false);
+      setSelectedLead(null);
+      fetchData();
+    } catch (error) {
+      console.error('Error approving verification:', error);
+      showToast('Failed to approve verification: ' + error.message, 'error');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleRejectVerification = async () => {
+    if (!selectedLead) return;
+    
+    setProcessing(true);
+    try {
+      let verification = verifications.find(v => v.lead_id === selectedLead.id);
+      
+      // If verification doesn't exist, create it first (with rejected status)
+      if (!verification) {
+        console.log('⚠️ Creating verification record before rejection...');
+        const { data: newVerification, error: createError } = await supabase
+          .from('lead_verifications')
+          .insert({
+            lead_id: selectedLead.id,
+            user_id: selectedLead.user_id,
+            status: 'rejected',
+            report_data: {
+              dealAmount: selectedLead.deal_amount,
+              usdAmount: selectedLead.deal_amount_usd,
+              timestamp: new Date().toISOString(),
+            },
+            notes: verificationNotes,
+            created_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+        
+        if (createError) {
+          throw new Error('Failed to create verification record: ' + createError.message);
+        }
+        
+        verification = newVerification;
+        setVerifications(prev => [...prev, verification]);
+        
+        showToast('Lead verification rejected.', 'success');
+        setShowReviewModal(false);
+        setSelectedLead(null);
+        fetchData();
+        return;
+      }
+
+      const { error } = await rejectLeadVerification(verification.id);
+      if (error) throw error;
+
+      showToast('Lead verification rejected.', 'success');
+      setShowReviewModal(false);
+      setSelectedLead(null);
+      fetchData();
+    } catch (error) {
+      console.error('Error rejecting verification:', error);
+      showToast('Failed to reject verification: ' + error.message, 'error');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleFinalizeVerification = async (verification) => {
+    if (!window.confirm('Are you sure you want to finalize this verification and reflect earnings?')) return;
+    
+    setProcessing(true);
+    try {
+      const { error } = await finalizeLeadVerification(verification.id, currentUser.id);
+      if (error) throw error;
+
+      // Reflect earnings after verification
+      const lead = leads.find(l => l.id === verification.lead_id);
+      if (lead && lead.deal_amount) {
+        const { error: earningsError } = await reflectEarningsAfterVerification(
+          verification.lead_id,
+          lead.user_id,
+          parseFloat(lead.deal_amount)
+        );
+        
+        if (earningsError) {
+          console.error('Error reflecting earnings:', earningsError);
+        }
+      }
+
+      showToast('✓ Lead verified and earnings reflected. Freelancer will see payment...', 'success');
+      fetchData();
+    } catch (error) {
+      console.error('Error finalizing verification:', error);
+      showToast('Failed to finalize verification', 'error');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const pendingLeads = leads.filter(lead => {
+    // Check if lead is converted and not verified
+    if (lead.status !== 'Converted') return false;
+    if (lead.is_verified_by_admin) return false;
+    
+    // If no verifications exist at all, show all unverified converted leads
+    if (!verifications || verifications.length === 0) {
+      console.log('⚠️ No verifications found, showing all unverified converted leads');
+      return true;
+    }
+    
+    // Check if there's a pending verification for this lead
+    const pendingVerification = verifications.find(v => 
+      v.lead_id === lead.id && v.status === 'pending'
+    );
+    
+    // Check if there's any verification for this lead (regardless of status)
+    const anyVerification = verifications.find(v => v.lead_id === lead.id);
+    
+    // Show if: has pending verification OR has no verification at all
+    const shouldShow = !!pendingVerification || !anyVerification;
+    
+    return shouldShow;
+  });
+  
+  const verifiedLeads = leads.filter(lead => lead.is_verified_by_admin);
+  const finalApprovals = verifications.filter(v => v.status === 'awaiting_admin_final');
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-amber-500"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Sub-tabs */}
+      <div className="flex gap-1 border-b border-dark-500 overflow-x-auto">
+        <button
+          onClick={() => setActiveSubTab('pending')}
+          className={`px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap ${
+            activeSubTab === 'pending'
+              ? 'border-b-2 border-amber-400 text-amber-400'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          Pending Verification ({pendingLeads.length})
+        </button>
+        <button
+          onClick={() => setActiveSubTab('final_approvals')}
+          className={`px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap ${
+            activeSubTab === 'final_approvals'
+              ? 'border-b-2 border-amber-400 text-amber-400'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          Final Approvals ({finalApprovals.length})
+        </button>
+        <button
+          onClick={() => setActiveSubTab('verified')}
+          className={`px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap ${
+            activeSubTab === 'verified'
+              ? 'border-b-2 border-amber-400 text-amber-400'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          Verified ({verifiedLeads.length})
+        </button>
+      </div>
+
+      {/* Pending Verification Tab */}
+      {activeSubTab === 'pending' && (
+        <div className="bg-dark-800 border border-dark-500 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-dark-500">
+            <h2 className="font-display font-semibold text-white">Pending Verifications</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-dark-500">
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Client Name</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Company</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Freelancer</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Deal Amount (INR/USD)</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Services</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Date</th>
+                  <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-dark-600">
+                {pendingLeads.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center py-12">
+                      <p className="text-slate-500 text-sm">No pending verifications</p>
+                    </td>
+                  </tr>
+                ) : (
+                  pendingLeads.map(lead => (
+                    <tr key={lead.id} className="hover:bg-dark-700/50 transition-colors">
+                      <td className="px-5 py-3.5 text-white font-medium">{lead.client_name}</td>
+                      <td className="px-5 py-3.5 text-slate-400 text-sm">{lead.company_name || '—'}</td>
+                      <td className="px-5 py-3.5 text-slate-400 text-sm">{lead.users?.name || 'Unknown'}</td>
+                      <td className="px-5 py-3.5 text-slate-300">
+                        ₹{lead.deal_amount?.toLocaleString('en-IN')} / ${lead.deal_amount_usd?.toLocaleString('en-US')}
+                      </td>
+                      <td className="px-5 py-3.5 text-slate-400 text-xs">
+                        {Array.isArray(lead.services) ? lead.services.join(', ') : lead.services}
+                      </td>
+                      <td className="px-5 py-3.5 text-slate-500 text-xs">
+                        {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </td>
+                      <td className="px-5 py-3.5 text-right">
+                        <button
+                          onClick={() => handleReviewLead(lead)}
+                          className="text-xs px-2 py-1 text-amber-400 hover:bg-amber-500/10 rounded transition-colors"
+                        >
+                          Review & Verify
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Final Approvals Tab */}
+      {activeSubTab === 'final_approvals' && (
+        <div className="bg-dark-800 border border-dark-500 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-dark-500">
+            <h2 className="font-display font-semibold text-white">Final Approvals</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-dark-500">
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Client</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Company</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Freelancer</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Verification Date</th>
+                  <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-dark-600">
+                {finalApprovals.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="text-center py-12">
+                      <p className="text-slate-500 text-sm">No verifications awaiting final approval</p>
+                    </td>
+                  </tr>
+                ) : (
+                  finalApprovals.map(verification => {
+                    const lead = leads.find(l => l.id === verification.lead_id);
+                    const freelancer = lead?.users;
+                    return (
+                      <tr key={verification.id} className="hover:bg-dark-700/50 transition-colors">
+                        <td className="px-5 py-3.5 text-white font-medium">{lead?.client_name || 'Unknown'}</td>
+                        <td className="px-5 py-3.5 text-slate-400 text-sm">{lead?.company_name || '—'}</td>
+                        <td className="px-5 py-3.5 text-slate-400 text-sm">{freelancer?.name || 'Unknown'}</td>
+                        <td className="px-5 py-3.5 text-slate-500 text-xs">
+                          {verification.verification_date ? new Date(verification.verification_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                        </td>
+                        <td className="px-5 py-3.5 text-right">
+                          <button
+                            onClick={() => handleFinalizeVerification(verification)}
+                            disabled={processing}
+                            className="text-xs px-2 py-1 text-emerald-400 hover:bg-emerald-500/10 rounded transition-colors disabled:opacity-50"
+                          >
+                            Finalize & Reflect Earnings
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Verified Tab */}
+      {activeSubTab === 'verified' && (
+        <div className="bg-dark-800 border border-dark-500 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-dark-500">
+            <h2 className="font-display font-semibold text-white">Verified Leads</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-dark-500">
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Client</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Company</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Freelancer</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Deal Amount</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Services</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Verified Date</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Verified By</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-dark-600">
+                {verifiedLeads.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center py-12">
+                      <p className="text-slate-500 text-sm">No verified leads yet</p>
+                    </td>
+                  </tr>
+                ) : (
+                  verifiedLeads.map(lead => {
+                    const verification = verifications.find(v => v.lead_id === lead.id && v.status === 'verified');
+                    return (
+                      <tr key={lead.id} className="hover:bg-dark-700/50 transition-colors">
+                        <td className="px-5 py-3.5 text-white font-medium">{lead.client_name}</td>
+                        <td className="px-5 py-3.5 text-slate-400 text-sm">{lead.company_name || '—'}</td>
+                        <td className="px-5 py-3.5 text-slate-400 text-sm">{lead.users?.name || 'Unknown'}</td>
+                        <td className="px-5 py-3.5 text-slate-300">₹{lead.deal_amount?.toLocaleString('en-IN')}</td>
+                        <td className="px-5 py-3.5 text-slate-400 text-xs">
+                          {Array.isArray(lead.services) ? lead.services.join(', ') : lead.services}
+                        </td>
+                        <td className="px-5 py-3.5 text-slate-500 text-xs">
+                          {verification?.admin_final_verification_date 
+                            ? new Date(verification.admin_final_verification_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                            : (lead.verified_at ? new Date(lead.verified_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
+                          }
+                        </td>
+                        <td className="px-5 py-3.5 text-slate-400 text-xs">
+                          Admin ID: {verification?.verified_by_admin_id?.substring(0, 8) || lead.verified_by_admin_id?.substring(0, 8)}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Review Modal */}
+      {showReviewModal && selectedLead && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowReviewModal(false)} />
+          <div className="relative w-full max-w-2xl bg-dark-800 border border-dark-500 rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="font-display font-bold text-white text-xl">Review Lead Verification</h2>
+              <button onClick={() => setShowReviewModal(false)} className="text-slate-500 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Client Information */}
+              <div className="border-t border-dark-500 pt-4">
+                <h3 className="text-amber-400 font-semibold mb-4">Client Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">Client Name</p>
+                    <p className="text-white mt-1">{selectedLead.client_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">Client Phone</p>
+                    <p className="text-white mt-1">{selectedLead.phone}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">Client Email</p>
+                    <p className="text-white mt-1">{selectedLead.client_email || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">Freelancer Email</p>
+                    <p className="text-white mt-1">{selectedLead.email || '—'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Company Information */}
+              <div className="border-t border-dark-500 pt-4">
+                <h3 className="text-amber-400 font-semibold mb-4">Company Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">Company Name</p>
+                    <p className="text-white mt-1">{selectedLead.company_name || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">Company Email</p>
+                    <p className="text-white mt-1">{selectedLead.company_email || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">Company Reg No</p>
+                    <p className="text-white mt-1">{selectedLead.company_reg_no || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">GST No</p>
+                    <p className="text-white mt-1">{selectedLead.gst_no || 'N/A'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Deal Information */}
+              <div className="border-t border-dark-500 pt-4">
+                <h3 className="text-amber-400 font-semibold mb-4">Deal Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">Deal Amount (INR)</p>
+                    <p className="text-white font-mono text-lg mt-1">₹{selectedLead.deal_amount?.toLocaleString('en-IN')}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">Deal Amount (USD)</p>
+                    <p className="text-white font-mono text-lg mt-1">${selectedLead.deal_amount_usd?.toLocaleString('en-US')}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-slate-500 uppercase tracking-wide">Services Selected</p>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {(Array.isArray(selectedLead.services) ? selectedLead.services : (selectedLead.services ? [selectedLead.services] : [])).map((svc, i) => (
+                        <span key={i} className="text-xs bg-amber-500/10 text-amber-400 px-3 py-1 rounded-full border border-amber-500/20">
+                          {svc}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Verification Notes */}
+              <div className="border-t border-dark-500 pt-4">
+                <h3 className="text-amber-400 font-semibold mb-2">Verification Notes</h3>
+                <textarea
+                  value={verificationNotes}
+                  onChange={(e) => setVerificationNotes(e.target.value)}
+                  placeholder="Add any notes about this verification..."
+                  rows={3}
+                  className="w-full bg-dark-600 border border-dark-400 rounded-xl text-sm text-white placeholder-slate-600 px-4 py-2.5 focus:outline-none focus:border-amber-500/50 transition-all resize-none"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="border-t border-dark-500 pt-4 flex gap-3">
+                <Button
+                  variant="secondary"
+                  className="flex-1 justify-center"
+                  onClick={() => setShowReviewModal(false)}
+                  disabled={processing}
+                >
+                  Cancel
+                </Button>
+                <button
+                  onClick={handleRejectVerification}
+                  disabled={processing}
+                  className="flex-1 justify-center px-4 py-2.5 bg-red-500/15 text-red-400 border border-red-500/20 rounded-xl text-sm font-medium hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                >
+                  {processing ? 'Rejecting...' : 'Reject'}
+                </button>
+                <Button
+                  className="flex-1 justify-center bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-500"
+                  onClick={handleApproveVerification}
+                  disabled={processing}
+                >
+                  {processing ? 'Approving...' : 'Approve Verification'}
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

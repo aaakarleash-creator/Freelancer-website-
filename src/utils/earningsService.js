@@ -3,30 +3,86 @@ import { supabase } from './supabaseClient';
 // SUPABASE SQL — run this before using earnings features:
 // ALTER TABLE earnings ADD COLUMN IF NOT EXISTS lead_id uuid REFERENCES leads(id);
 
-export const processLeadConversion = async (leadId, userId, dealAmount) => {
+export const processLeadConversion = async (leadId, userId, dealAmount, conversionDetails = {}) => {
   try {
-    // 1. Update lead status to Converted
+    // Update lead status to Converted AND save deal amount and conversion details
+    const usdAmount = (dealAmount / 83).toFixed(2); // Convert to USD
+    
+    const updateData = { 
+      status: 'Converted',
+      deal_amount: dealAmount,
+      deal_amount_usd: usdAmount
+    };
+
+    // Add optional conversion details if provided
+    if (conversionDetails.client_email) updateData.client_email = conversionDetails.client_email;
+    if (conversionDetails.company_email) updateData.company_email = conversionDetails.company_email;
+    if (conversionDetails.company_reg_no) updateData.company_reg_no = conversionDetails.company_reg_no;
+    if (conversionDetails.gst_no) updateData.gst_no = conversionDetails.gst_no;
+    if (conversionDetails.company_name) updateData.company_name = conversionDetails.company_name;
+    
     const { error: leadError } = await supabase
       .from('leads')
-      .update({ status: 'Converted' })
+      .update(updateData)
       .eq('id', leadId);
 
     if (leadError) throw leadError;
 
-    // 2. Count total converted leads for this user to determine commission rate
-    const { count, error: countError } = await supabase
+    // Create lead verification record (status: pending)
+    const reportData = {
+      dealAmount,
+      usdAmount,
+      timestamp: new Date().toISOString(),
+      ...conversionDetails
+    };
+
+    console.log('Creating verification record for lead:', leadId, 'user:', userId);
+    
+    const { data: verificationData, error: verificationError } = await supabase
+      .from('lead_verifications')
+      .insert({
+        lead_id:     leadId,
+        user_id:     userId,
+        status:      'pending',
+        report_data: reportData,
+        created_at:  new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (verificationError) {
+      console.error('❌ Failed to create verification record:', verificationError);
+      // Don't throw - allow lead conversion to proceed even if verification fails
+      // But log it clearly for debugging
+    } else {
+      console.log('✅ Verification record created successfully:', verificationData);
+    }
+
+    // DO NOT CREATE EARNINGS YET — wait for admin verification
+    return { success: true, message: 'Lead marked as converted. Awaiting admin verification for earnings.', error: null };
+  } catch (err) {
+    console.error('processLeadConversion error:', err);
+    return { success: false, message: null, error: err.message };
+  }
+};
+
+export const reflectEarningsAfterVerification = async (leadId, userId, dealAmount) => {
+  try {
+    // Count converted leads EXCLUDING the current one to determine correct rate
+    const { count } = await supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
-      .eq('status', 'Converted');
+      .eq('status', 'Converted')
+      .neq('id', leadId); // Exclude current lead from count
 
-    if (countError) throw countError;
-
-    // 3. Commission rate: 15% if 10+ conversions, else 10%
-    const rate = (count >= 10) ? 15 : 10;
+    // 10th conversion (count = 9 existing) gets 15% rate
+    const rate = (count >= 9) ? 15 : 10;
     const commission = parseFloat((dealAmount * (rate / 100)).toFixed(2));
 
-    // 4. Insert earnings record with lead_id for joining later
+    console.log(`Commission calculation: ${count} existing conversions, rate: ${rate}%, commission: ${commission}`);
+
+    // NOW create earnings after verification
     const { error: earningsError } = await supabase
       .from('earnings')
       .insert({
@@ -42,7 +98,6 @@ export const processLeadConversion = async (leadId, userId, dealAmount) => {
 
     return { success: true, commission, rate, error: null };
   } catch (err) {
-    console.error('processLeadConversion error:', err);
     return { success: false, commission: 0, rate: 10, error: err.message };
   }
 };

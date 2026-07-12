@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy } from 'lucide-react';
+import { Trophy, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../utils/supabaseClient';
+import { getLeaderboard } from '../utils/supabaseQueryHelper';
 
 const medalColors = {
   0: { bg: 'from-yellow-500/20 to-amber-600/10', border: 'border-yellow-500/30', text: 'text-yellow-400', badge: '🥇' },
@@ -13,43 +14,44 @@ export default function LeaderboardPage() {
   const { currentUser } = useAuth();
   const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     const fetchLeaderboard = async () => {
       setLoading(true);
-      
-      // Add timeout to prevent infinite loading
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout')), 10000)
-      );
-      
-      // Get all users with their converted lead counts and total earnings
-      const usersPromise = supabase
-        .from('users')
-        .select('id, name, designation, role')
-        .eq('status', 'active');
-      
-      const usersResult = await Promise.race([usersPromise, timeoutPromise]);
-      
-      // Handle timeout case
-      if (usersResult instanceof Error) {
-        console.error('Leaderboard fetch timed out, using empty state');
+      setError('');
+
+      // Get all users with their converted lead counts and total earnings (initial list)
+      try {
+        const { data: users, error: usersError } = await getLeaderboard();
+
+        if (usersError) {
+          console.error('Failed to fetch users for leaderboard:', usersError);
+          setError('Failed to load leaderboard');
+          setLeaderboard([]);
+          setLoading(false);
+          return;
+        }
+
+        if (!users || users.length === 0) {
+          setLeaderboard([]);
+          setLoading(false);
+          return;
+        }
+
+        // continue below with users
+        var usersList = users;
+      } catch (e) {
+        console.error('Leaderboard initial fetch error:', e);
+        setError('Failed to load leaderboard');
         setLeaderboard([]);
         setLoading(false);
         return;
       }
-      
-      const { data: users, error: usersError } = usersResult;
-
-      if (usersError) { 
-        console.error('Failed to fetch users for leaderboard:', usersError);
-        setLeaderboard([]);
-        setLoading(false); 
-        return; 
-      }
 
       // For each user get their stats with timeout
-      const withStats = await Promise.all(users.map(async (user) => {
+      const withStats = await Promise.all(usersList.map(async (user) => {
         // Add timeout for each user's stats fetch
         const statsTimeout = new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Stats fetch timeout')), 5000)
@@ -104,9 +106,8 @@ export default function LeaderboardPage() {
       setLeaderboard(sorted);
       setLoading(false);
     };
-
     fetchLeaderboard();
-  }, []);
+  }, [retryCount]);
 
   const getInitials = (name) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
@@ -132,6 +133,14 @@ export default function LeaderboardPage() {
         <h1 className="font-display text-2xl font-bold text-white">Leaderboard</h1>
         <p className="text-slate-500 text-sm mt-0.5">Ranked by converted leads</p>
       </div>
+
+      {error && (
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400 flex items-center gap-3">
+          <AlertCircle className="flex-shrink-0" size={16} />
+          <div className="flex-1">{error}</div>
+          <button onClick={() => setRetryCount(c => c + 1)} className="text-sm bg-dark-600 border border-dark-400 px-3 py-1 rounded">Retry</button>
+        </div>
+      )}
 
       {/* Podium — top 3 */}
       {top3.length > 0 && (
