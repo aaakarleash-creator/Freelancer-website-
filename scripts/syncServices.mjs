@@ -18,18 +18,24 @@ async function sync() {
 
   // Map to only the columns that exist in the current Supabase 'services' table
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const rows = SERVICES.map((s) => ({
-    ...(s.id && uuidRegex.test(s.id) ? { id: s.id } : {}),
-    name: s.name,
-    description: s.shortDesc || s.short_desc || s.description || null,
-    detailed_description: s.detailed_description || s.detailedDescription || null,
-    category: s.category || 'General',
-    price_inr: s.priceInr || (s.plans && s.plans[0] && s.plans[0].priceInr) || null,
-    price_usd: s.priceUsd || (s.plans && s.plans[0] && s.plans[0].priceUsd) || null,
-    features: s.features || null,
-    delivery_time: s.delivery_time || s.deliveryTime || null,
-    created_at: new Date().toISOString(),
-  }));
+  const rows = SERVICES.map((s) => {
+    const highlightedPlan = s.plans && s.plans.length > 0 
+      ? s.plans.find(p => p.highlighted) || s.plans[0] 
+      : null;
+    
+    return {
+      ...(s.id && uuidRegex.test(s.id) ? { id: s.id } : {}),
+      name: s.name,
+      description: s.shortDesc || s.short_desc || s.description || null,
+      detailed_description: s.detailed_description || s.detailedDescription || null,
+      category: s.category || 'General',
+      price_inr: s.priceInr || (highlightedPlan && highlightedPlan.priceInr) || null,
+      price_usd: s.priceUsd || (highlightedPlan && highlightedPlan.priceUsd) || null,
+      features: s.features || null,
+      delivery_time: s.delivery_time || s.deliveryTime || null,
+      created_at: new Date().toISOString(),
+    };
+  });
 
   try {
     // Use on_conflict=id to merge duplicates on the `id` column
