@@ -147,10 +147,10 @@ All commission rates are deducted from the freelancer's earnings before payment.
 The Platform charges a commission on all earnings generated through service engagements. The commission structure is as follows:
 
 Base Commission: 10% of gross earnings on all completed projects
-Loyalty Commission Reduction: Freelancers who achieve 10 or more successful conversions within a calendar year are eligible for a reduced rate of 15% (subject to change based on account performance)
+Loyalty Commission Reduction: Freelancers who achieve 10 or more successful conversions within a calendar year are eligible for a increased rate of 15% (subject to change based on account performance)
 Payout Processing Fee: Additional service fees may apply for certain payment methods or cross-border transfers
 
-All commission rates are deducted from earnings before payment to the Freelancer. The Freelancer acknowledges that these rates are subject to modification with 30 days' written notice.
+All commission rates are deducted from earnings before payment to the Freelancer. The Freelancer acknowledges that these rates are subject to modification with 15 days' written notice.
 
 5. EMPLOYMENT CLASSIFICATION
 The Freelancer is an independent contractor and may be engaged as a performance-based employee of AAKAR Co. This arrangement is performance-based and earnings are not guaranteed.
